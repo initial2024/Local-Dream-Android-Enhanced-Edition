@@ -233,6 +233,11 @@ fun ReproduceParametersDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    stringResource(R.string.enhanced_reproduce_limit),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 available.forEach { field ->
                     val preview = when (field) {
                         ParamShareField.PROMPT -> params.prompt
