@@ -5,16 +5,21 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.net.Uri
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.xororz.localdream.R
 import io.github.xororz.localdream.data.Model
+import io.github.xororz.localdream.data.MnnCheckpointPolicy
+import io.github.xororz.localdream.data.MnnModelSuggestions
+import io.github.xororz.localdream.data.MnnSafetensorsConverter
 import io.github.xororz.localdream.data.ModelStorage
 import io.github.xororz.localdream.utils.Http
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.cancellation.CancellationException
@@ -25,6 +30,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
@@ -58,6 +64,7 @@ class ModelDownloadService : Service() {
         const val EXTRA_IS_ZIP = "is_zip"
         const val EXTRA_MODEL_TYPE = "model_type"
         const val TYPE_SD = "sd"
+        const val TYPE_SD15_CHECKPOINT = "sd15_checkpoint"
         const val TYPE_UPSCALER = "upscaler"
 
         // Package downloaded as individual files instead of one zip. A DiT
@@ -83,6 +90,7 @@ class ModelDownloadService : Service() {
         ) : DownloadState()
 
         data class Extracting(val modelId: String) : DownloadState()
+        data class Converting(val modelId: String, val phase: String) : DownloadState()
         data class Success(val modelId: String) : DownloadState()
         data class Error(val modelId: String, val message: String) : DownloadState()
     }
@@ -131,11 +139,28 @@ class ModelDownloadService : Service() {
         fileNames: List<String> = emptyList(),
         markerFile: String? = null,
     ) {
-        downloadJob?.cancel()
+        // Do not interrupt a multi-GB conversion or another download.
+        if (downloadJob?.isActive == true) {
+            Log.w(TAG, "Another model operation is in progress; keeping it intact")
+            return
+        }
         downloadJob = serviceScope.launch {
+            var checkpointLease = false
             var tempFile: File? = null
             var extractTempDir: File? = null
             try {
+                if (modelType == TYPE_SD15_CHECKPOINT) {
+                    val checkpoint = MnnModelSuggestions.options.firstOrNull {
+                        it.modelId == modelId && it.downloadUrl == fileUrl
+                    } ?: throw IOException("Unrecognized checkpoint or download URL")
+                    if (!ModelStorage.beginMnnImport()) {
+                        throw IOException("Stop generation, storage moves and imports before installing")
+                    }
+                    checkpointLease = true
+                    if (File(getModelsDir(), checkpoint.modelId).exists()) {
+                        throw IOException("The model is already installed; existing files are preserved")
+                    }
+                }
                 _downloadState.value = DownloadState.Downloading(modelId, 0f, 0, 0)
 
                 val tempDir = ModelStorage.tempDownloadsDir(this@ModelDownloadService)
@@ -163,6 +188,32 @@ class ModelDownloadService : Service() {
                 downloadFile(fileUrl, tempFile, modelId, modelName)
 
                 when (modelType) {
+                    TYPE_SD15_CHECKPOINT -> {
+                        val checkpoint = MnnModelSuggestions.options.firstOrNull {
+                            it.modelId == modelId
+                        } ?: throw IOException("Checkpoint metadata missing")
+                        val downloadedFile = tempFile
+                            ?: throw IOException("Checkpoint download not found")
+                        val size = downloadedFile.length()
+                        if (!MnnCheckpointPolicy.acceptableSourceSize(size)) {
+                            throw IOException("Invalid checkpoint file size: $size")
+                        }
+                        _downloadState.value = DownloadState.Converting(modelId, "Verifying SHA256")
+                        val actualSha = sha256Of(downloadedFile)
+                        if (!actualSha.equals(checkpoint.sourceSha256, ignoreCase = true)) {
+                            throw IOException("Checkpoint SHA256 mismatch; conversion refused")
+                        }
+                        MnnSafetensorsConverter.convert(
+                            this@ModelDownloadService,
+                            Uri.fromFile(downloadedFile),
+                            checkpoint.modelId,
+                            checkpoint.clipSkip,
+                            onProgress = { phase ->
+                                _downloadState.value = DownloadState.Converting(modelId, phase)
+                            },
+                            reservationHeld = true,
+                        )
+                    }
                     TYPE_SD -> {
                         if (isZip) {
                             val modelDir = File(getModelsDir(), modelId)
@@ -243,8 +294,27 @@ class ModelDownloadService : Service() {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
+            } finally {
+                if (checkpointLease) {
+                    ModelStorage.endMnnImport()
+                }
             }
         }
+    }
+
+    /** Computes a fixed expected SHA-256 instead of trusting download size or filename. */
+    private suspend fun sha256Of(file: File): String = withContext(Dispatchers.IO) {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { source ->
+            val buffer = ByteArray(256 * 1024)
+            while (true) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val count = source.read(buffer)
+                if (count < 0) break
+                if (count > 0) digest.update(buffer, 0, count)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /**
