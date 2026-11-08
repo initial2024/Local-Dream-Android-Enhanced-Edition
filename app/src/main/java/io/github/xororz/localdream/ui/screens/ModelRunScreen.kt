@@ -201,6 +201,7 @@ fun ModelRunScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
     isRemote: Boolean = false,
+    historyId: Long = -1L,
 ) {
     val serviceState by BackgroundGenerationService.generationState.collectAsState()
     val backendState by BackendService.backendState.collectAsState()
@@ -303,6 +304,9 @@ fun ModelRunScreen(
     var showDeleteHistoryDialog by remember { mutableStateOf(false) }
     var showReproduceParamsDialog by remember { mutableStateOf(false) }
     var pendingReproduceParams by remember { mutableStateOf<GenerationParameters?>(null) }
+    // Exactly one request per history route; no stale imported parameters
+    // can leak into another model when the destination is reused.
+    var historyReproduceHandled by remember(historyId) { mutableStateOf(false) }
 
     // Parameter share state
     var shareSourceParams by remember { mutableStateOf<GenerationParameters?>(null) }
@@ -1462,6 +1466,24 @@ fun ModelRunScreen(
             }
 
             hasInitialized = true
+        }
+    }
+
+    LaunchedEffect(historyId, hasInitialized, model?.id) {
+        if (historyId > 0L && hasInitialized && model?.id == modelId &&
+            !historyReproduceHandled && !isRemote
+        ) {
+            historyReproduceHandled = true
+            val fromHistory = historyManager.getItems(listOf(historyId)).firstOrNull()
+            if (fromHistory?.modelId == modelId) {
+                // Restore parameters through the existing audited selection
+                // dialog. Never auto-generate a historical img2img/inpaint
+                // sample: original source photo and mask are not retained.
+                pendingReproduceParams = fromHistory.params
+                showReproduceParamsDialog = true
+            } else {
+                Log.w("ModelRunScreen", "History target missing or belongs to another model")
+            }
         }
     }
 
