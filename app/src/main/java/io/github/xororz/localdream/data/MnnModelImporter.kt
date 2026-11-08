@@ -102,6 +102,11 @@ object MnnModelImporter {
                             }
                             out.write(buffer, 0, n)
                             if (total - lastProgress >= 32L * 1024 * 1024) {
+                                // Stop before an inflated ZIP consumes the
+                                // final free space required by Android.
+                                if (root.usableSpace < MnnModelPackage.MIN_FREE_BYTES) {
+                                    throw IOException("Not enough free storage to finish MNN import")
+                                }
                                 onProgress(total)
                                 lastProgress = total
                             }
@@ -121,7 +126,9 @@ object MnnModelImporter {
                 throw IOException("Cannot atomically commit imported MNN model")
             }
             staging = null
-            onProgress(total)
+            // Completion callback must never turn an already committed
+            // model into a reported import failure.
+            runCatching { onProgress(total) }
             id
         } finally {
             staging?.deleteRecursively()
