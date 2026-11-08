@@ -2952,7 +2952,7 @@ fun ModelRunScreen(
                             onUltrafixClick = { showUltrafixConfirmDialog = true },
                             onSaveHdClick = { bitmap ->
                                 // Explicit crop: ordinary Save/history keep native 1440x1088.
-                                val cropped = HighDefinitionOutput.cropTo1440x1080(bitmap)
+                                val cropped = HighDefinitionOutput.export(bitmap)
                                 handleSaveImage(
                                     context = context,
                                     bitmap = cropped,
