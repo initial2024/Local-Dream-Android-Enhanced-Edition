@@ -550,4 +550,9 @@
     <string name="enhanced_mnn_imported_bytes">Importing: %1$d MiB extracted</string>
     <string name="enhanced_mnn_zip_import_success">MNN model %1$s imported; ready to select</string>
     <string name="enhanced_mnn_zip_import_failure">Import rejected: %1$s</string>
+    <string name="enhanced_convert_sd15_safetensors">Import SD1.5 .safetensors (convert offline)</string>
+    <string name="enhanced_convert_sd15_warning">Experimental: checkpoint must include VAE. Conversion may take several minutes, several GiB of free RAM and 3× checkpoint storage. SDXL/Flux/LoRA sidecars are not supported. Preserve installed models; use official sources and check model licenses.</string>
+    <string name="enhanced_merge_lora_before_import">LoRA sidecars cannot be used by this converter yet. Merge into the original checkpoint before import.</string>
+    <string name="enhanced_recommended_sd15_models">Optional models to try (source links)</string>
+    <string name="enhanced_recommendation_license_notice">These are external checkpoint pages, not pre-converted downloads. Confirm author, license and SHA256; open a complete SD1.5 safetensors file using the conversion button above. Device compatibility and quality are unverified.</string>
 </resources>

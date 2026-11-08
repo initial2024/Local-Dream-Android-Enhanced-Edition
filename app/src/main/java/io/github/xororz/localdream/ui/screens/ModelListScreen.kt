@@ -312,6 +312,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
     val remoteActive = remoteRepository.isActive
 
     var showHelpDialog by remember { mutableStateOf(false) }
+    var showSuggestedMnnCheckpoints by remember { mutableStateOf(false) }
     var mnnZipImporting by remember { mutableStateOf(false) }
     var mnnZipImportBytes by remember { mutableLongStateOf(0L) }
     val mnnZipImporter = rememberLauncherForActivityResult(
@@ -699,11 +700,42 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
     if (showCustomModelDialog) {
         CustomModelDialog(
             context,
+            allowLora = !BuildConfig.MNN_ONLY_NATIVE,
             onDismiss = { showCustomModelDialog = false },
             onModelAdded = { modelName, fileUri, clipSkip, loraFiles ->
                 showCustomModelDialog = false
                 scope.launch {
-                    convertCustomModel(
+                    if (BuildConfig.MNN_ONLY_NATIVE) {
+                        if (loraFiles.isNotEmpty()) {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.enhanced_merge_lora_before_import),
+                            )
+                        } else {
+                            isConverting = true
+                            try {
+                                MnnSafetensorsConverter.convert(
+                                    context, fileUri, modelName, clipSkip,
+                                ) { progress ->
+                                    withContext(Dispatchers.Main) {
+                                        conversionProgress = progress
+                                    }
+                                }
+                                modelRepository.refreshAllModels()
+                                snackbarHostState.showSnackbar(msgModelConversionSuccess)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                Log.e("MnnConvert", "Conversion rejected", e)
+                                snackbarHostState.showSnackbar(
+                                    msgModelConversionFailed.format(
+                                        e.message ?: e.javaClass.simpleName,
+                                    ),
+                                )
+                            } finally {
+                                isConverting = false
+                            }
+                        }
+                    } else convertCustomModel(
                         context = context,
                         modelName = modelName,
                         fileUri = fileUri,
@@ -1098,6 +1130,52 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                         item {
                             if (BuildConfig.MNN_ONLY_NATIVE) {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { showCustomModelDialog = true },
+                                        enabled = !isConverting && !mnnZipImporting,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(stringResource(R.string.enhanced_convert_sd15_safetensors))
+                                    }
+                                    Text(
+                                        stringResource(R.string.enhanced_convert_sd15_warning),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    TextButton(
+                                        onClick = {
+                                            showSuggestedMnnCheckpoints = !showSuggestedMnnCheckpoints
+                                        },
+                                    ) {
+                                        Text(stringResource(R.string.enhanced_recommended_sd15_models))
+                                    }
+                                    AnimatedVisibility(visible = showSuggestedMnnCheckpoints) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            MnnModelSuggestions.options.forEach { suggestion ->
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        val url = Uri.parse(suggestion.sourcePage)
+                                                        context.startActivity(
+                                                            Intent(Intent.ACTION_VIEW, url),
+                                                        )
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                ) {
+                                                    Text(
+                                                        "${suggestion.title} — ${suggestion.purpose}",
+                                                        maxLines = 2,
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                stringResource(R.string.enhanced_recommendation_license_notice),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
                                     OutlinedButton(
                                         onClick = {
                                             mnnZipImporter.launch(
@@ -2908,6 +2986,7 @@ fun CustomNpuModelDialog(context: Context, onDismiss: () -> Unit, onModelAdded: 
 @Composable
 fun CustomModelDialog(
     context: Context,
+    allowLora: Boolean = true,
     onDismiss: () -> Unit,
     onModelAdded: (String, Uri, Int, List<LoRAFile>) -> Unit,
 ) {
@@ -3004,7 +3083,9 @@ fun CustomModelDialog(
 
                 FilledTonalButton(
                     onClick = {
-                        filePickerLauncher.launch("application/octet-stream")
+                        filePickerLauncher.launch(
+                            if (allowLora) "application/octet-stream" else "*/*",
+                        )
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -3028,6 +3109,7 @@ fun CustomModelDialog(
                     )
                 }
 
+                if (allowLora) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -3133,6 +3215,7 @@ fun CustomModelDialog(
                             }
                         }
                     }
+                }
                 }
             }
         },
