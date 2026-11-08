@@ -98,7 +98,7 @@ jobs:
 
           Supported experimental backend: original-format SD1.5 MNN CPU/OpenCL.
           Qualcomm-only QNN, SDXL and DiT are excluded.
-          Alpha.2 native SD1.5 experimental size presets up to 1024x1024
+          Experimental native SD1.5 size presets up to 1024x1024
           have NOT been verified on a real device; try 640 and 768 first.
           1440x1080 bitmap export is scaled/cropped, not extra diffusion detail.
 
