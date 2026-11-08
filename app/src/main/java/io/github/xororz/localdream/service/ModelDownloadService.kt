@@ -165,10 +165,11 @@ class ModelDownloadService : Service() {
 
                 val tempDir = ModelStorage.tempDownloadsDir(this@ModelDownloadService)
 
-                if (tempDir.exists()) {
-                    tempDir.deleteRecursively()
+                // A verified partial checkpoint may belong to a previous
+                // crash. Never remove other users' source model directories.
+                if (!tempDir.exists() && !tempDir.mkdirs()) {
+                    throw IOException("Cannot create temporary download directory")
                 }
-                tempDir.mkdirs()
 
                 if (modelType == TYPE_MULTI_FILE) {
                     downloadPackageFiles(modelId, modelName, fileUrl, fileNames, markerFile)
@@ -212,6 +213,7 @@ class ModelDownloadService : Service() {
                                 _downloadState.value = DownloadState.Converting(modelId, phase)
                             },
                             reservationHeld = true,
+                            moveVerifiedCheckpoint = true,
                         )
                     }
                     TYPE_SD -> {
