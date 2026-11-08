@@ -186,14 +186,20 @@ private fun AppContent() {
                     type = NavType.BoolType
                     defaultValue = false
                 },
+                navArgument("historyId") {
+                    type = NavType.LongType
+                    defaultValue = -1L
+                },
             ),
         ) { backStackEntry ->
             val modelId = backStackEntry.arguments?.getString("modelId") ?: ""
             val isRemote = backStackEntry.arguments?.getBoolean("remote") ?: false
+            val historyId = backStackEntry.arguments?.getLong("historyId") ?: -1L
 
             ModelRunScreen(
                 modelId = modelId,
                 isRemote = isRemote,
+                historyId = historyId,
                 navController = navController,
             )
         }
