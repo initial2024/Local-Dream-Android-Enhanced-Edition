@@ -1,0 +1,137 @@
+name: Publish signed MNN device-test APK and ZIP
+
+on:
+  workflow_run:
+    workflows: ["Signed basic release — native and certificate gates"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-device-test:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the exact trusted source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Download signed artifact from the successful workflow run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/device-test"
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name LocalDreamEnhanced-basicRelease-signed-DEVICE-UNVERIFIED \
+            --dir "$RUNNER_TEMP/device-test"
+          COUNT="$(find "$RUNNER_TEMP/device-test" -type f -name '*.apk' | wc -l)"
+          test "$COUNT" -eq 1
+          APK="$(find "$RUNNER_TEMP/device-test" -type f -name '*.apk' -print -quit)"
+          test -s "$APK"
+          echo "DOWNLOADED_APK=$APK" >> "$GITHUB_ENV"
+
+      - name: Independently verify signed APK before public pre-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "build-tools;36.0.0"
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          "$AAPT" dump badging "$DOWNLOADED_APK" |
+            grep -F "package: name='io.github.initial2024.localdream.enhanced'"
+          "$APKSIGNER" verify --print-certs "$DOWNLOADED_APK" > "$RUNNER_TEMP/verify-certs.txt"
+          CERT="$(awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print toupper($2)}' "$RUNNER_TEMP/verify-certs.txt")"
+          EXPECTED="C903B3F6BDFA62E2BCB0E7F30534BB626FBA2715B35D6BF7BF80C768A8B103AA"
+          test -n "$CERT"
+          if [ "$CERT" != "$EXPECTED" ]; then
+            echo '::error::Unexpected certificate; refusing public artifact'
+            exit 1
+          fi
+          unzip -Z1 "$DOWNLOADED_APK" > "$RUNNER_TEMP/apk-entries.txt"
+          grep -Fxq 'lib/arm64-v8a/libstable_diffusion_core.so' "$RUNNER_TEMP/apk-entries.txt"
+          if grep -Eq '(^lib/arm64-v8a/libQnn|safety_checker.mnn)' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo '::error::Unexpected proprietary QNN or safety model in MNN-only APK'
+            exit 1
+          fi
+          echo 'Independent APK signing, package and arm64 binary checks passed.'
+
+      - name: Package public test APK, matching ZIP and checksums
+        shell: bash
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "$DOWNLOADED_APK" dist/LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.apk
+          cp LICENSE dist/LICENSE
+          cp ENHANCED_README.md dist/ENHANCED_README.md
+          cat > dist/README-TEST.txt <<EOF
+          Local Dream Enhanced — Signed Android Device-Test Build
+
+          SOURCE_REVISION=$HEAD_SHA
+          VERIFIED_ACTIONS_RUN=$RUN_ID
+          TARGET_ANDROID_ABI=arm64-v8a
+          PACKAGE=io.github.initial2024.localdream.enhanced
+
+          THIS BUILD HAS NOT BEEN VERIFIED TO GENERATE IMAGES ON A REAL PHONE.
+          It is NOT a stable production release. Original Local Dream v2.8.1
+          should remain installed. Do not delete previous models or app data.
+
+          Supported experimental backend: original-format SD1.5 MNN CPU/OpenCL.
+          Qualcomm-only QNN, SDXL and DiT are excluded. 1440x1080 export from
+          this backend is scaling/cropping, not native high-resolution diffusion.
+
+          Tests: first check boot; then run 512x512, 20 steps, fixed seed,
+          and compare CPU and OpenCL results. Stop if model data is corrupted.
+          See docs/MNN_MEDIATEK_ACCEPTANCE.md in the source repo.
+          EOF
+          (
+            cd dist
+            sha256sum LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.apk > SHA256SUMS.txt
+            zip -q -9 LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.zip \
+              LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.apk \
+              README-TEST.txt LICENSE ENHANCED_README.md
+            sha256sum LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.zip >> SHA256SUMS.txt
+          )
+          test -s dist/LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.apk
+          test -s dist/LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.zip
+          cat dist/SHA256SUMS.txt
+          echo "TAG=v0.1.0-alpha.1-mnn-test-$RUN_ID" >> "$GITHUB_ENV"
+
+      - name: Publish immutable GitHub pre-release with direct APK and ZIP assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "An immutable device-test pre-release for this build already exists."
+            exit 0
+          fi
+          gh release create "$TAG" \
+            dist/LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.apk \
+            dist/LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.zip \
+            dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$HEAD_SHA" \
+            --title "Local Dream Enhanced SD1.5 MNN device test ($TAG)" \
+            --prerelease \
+            --notes "Unverified Android arm64 phone-test build. Exact source: $HEAD_SHA. Upstream project xororz/local-dream (CC BY-NC 4.0); credit and license retained. Signed by the user's fixed enhanced key. Not yet proven to generate on MediaTek. Preserve original app and model files. Reproducible acceptance instructions: docs/MNN_MEDIATEK_ACCEPTANCE.md."
+          echo "Published test pre-release: $TAG"
