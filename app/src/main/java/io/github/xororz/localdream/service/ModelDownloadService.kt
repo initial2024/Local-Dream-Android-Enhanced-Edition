@@ -184,6 +184,20 @@ class ModelDownloadService : Service() {
                     return@launch
                 }
 
+                if (modelType == TYPE_SD15_CHECKPOINT) {
+                    val remoteBytes = remoteSize(fileUrl)
+                    if (remoteBytes > 0L) {
+                        val required = MnnCheckpointPolicy.requiredFreeBytes(remoteBytes)
+                            ?: throw IOException("Source checkpoint is outside supported size bounds")
+                        if (tempDir.usableSpace < required) {
+                            throw IOException(
+                                "Not enough free storage for download and conversion: " +
+                                    "approximately ${required / (1024 * 1024)} MiB required",
+                            )
+                        }
+                    }
+                }
+
                 tempFile = File(tempDir, "${modelId}_${System.currentTimeMillis()}.tmp")
 
                 downloadFile(fileUrl, tempFile, modelId, modelName)
