@@ -61,6 +61,7 @@ private fun PhotoVideoEditor(onClose: () -> Unit) {
     var photos by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var portrait by remember { mutableStateOf(false) }
     var seconds by remember { mutableStateOf(2) }
+    var highQuality by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf(false) }
     var percent by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -83,6 +84,7 @@ private fun PhotoVideoEditor(onClose: () -> Unit) {
             val snapshot = photos.toList()
             val vertical = portrait
             val photoSeconds = seconds
+            val exportQuality = highQuality
             running = true
             saved = false
             percent = 0
@@ -95,6 +97,7 @@ private fun PhotoVideoEditor(onClose: () -> Unit) {
                         destination = destination,
                         portrait = vertical,
                         secondsPerPhoto = photoSeconds,
+                        highQuality = exportQuality,
                         onProgress = { progress ->
                             withContext(Dispatchers.Main) { percent = progress }
                         },
@@ -130,7 +133,7 @@ private fun PhotoVideoEditor(onClose: () -> Unit) {
             }
             Text(
                 "Local photo slideshow, not an AI video diffusion model. No additional model " +
-                    "download is needed. H.264, 720p, 24 fps, crossfade.",
+                    "download is needed. H.264, 720p, 24 or 30 fps, crossfade.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Button(
@@ -168,6 +171,11 @@ private fun PhotoVideoEditor(onClose: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Portrait 720×1280", modifier = Modifier.weight(1f))
                 Switch(checked = portrait, enabled = !running, onCheckedChange = { portrait = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Higher quality • 30 fps / 6 Mbps", modifier = Modifier.weight(1f))
+                Switch(checked = highQuality, enabled = !running,
+                    onCheckedChange = { highQuality = it })
             }
             Text("Time per photo: ${seconds}s")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
