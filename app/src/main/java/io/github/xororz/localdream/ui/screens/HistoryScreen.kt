@@ -45,6 +45,9 @@ import io.github.xororz.localdream.data.GenerationPreferences
 import io.github.xororz.localdream.data.HistoryFilter
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
+import io.github.xororz.localdream.data.GenerationMode
+import io.github.xororz.localdream.data.ModelRepository
+import io.github.xororz.localdream.navigation.Screen
 import io.github.xororz.localdream.navigation.popBackStackIfResumed
 import io.github.xororz.localdream.ui.components.GenerationParamsDialog
 import io.github.xororz.localdream.ui.components.OverlayIconButton
@@ -68,6 +71,7 @@ fun HistoryScreen(navController: NavController) {
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val historyManager = remember { HistoryManager(context) }
+    val modelRepository = remember { ModelRepository.getInstance(context) }
     val generationPreferences = remember { GenerationPreferences(context) }
     val shareUseBase64 by remember { generationPreferences.observeShareUseBase64() }
         .collectAsState(initial = false)
@@ -289,14 +293,38 @@ fun HistoryScreen(navController: NavController) {
                 modelId = item.modelId,
                 displayMode = item.mode,
                 showImg2imgButton = false,
-                showReproduceButton = false,
+                // Historical img2img/inpaint inputs are not retained as
+                // replayable assets; never imply a guaranteed reproduction.
+                showReproduceButton = item.mode == GenerationMode.TXT2IMG,
                 onShare = {
                     showParamsDialog = false
                     showShareDialog = true
                 },
                 onSendToImg2img = {},
-                onReproduce = {},
-                onDismiss = { showParamsDialog = false },
+                onReproduce = {
+                    showParamsDialog = false
+                    scope.launch {
+                        modelRepository.ensureLoaded()
+                        val localModel = modelRepository.models.firstOrNull {
+                            it.id == item.modelId
+                        }
+                        if (localModel?.isDownloaded == true) {
+                            navController.navigate(
+                                Screen.ModelRun.createRoute(
+                                    modelId = item.modelId,
+                                    historyId = item.id,
+                                ),
+                            )
+                            previewItem = null
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "模型未安装或当前设备不支持；请先选择可运行的模型。",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                },                onDismiss = { showParamsDialog = false },
             )
         }
 
