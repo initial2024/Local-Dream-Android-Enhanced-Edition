@@ -14,8 +14,32 @@ jobs:
       - name: Checkout original source and enhancement code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Checkout only open-source dependencies used by MNN native build
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init --recursive --jobs 4 \
+            app/src/main/cpp/3rdparty/MNN \
+            app/src/main/cpp/3rdparty/cpp-httplib \
+            app/src/main/cpp/3rdparty/json \
+            app/src/main/cpp/3rdparty/stb \
+            app/src/main/cpp/3rdparty/tokenizers-cpp \
+            app/src/main/cpp/3rdparty/xsimd \
+            app/src/main/cpp/3rdparty/xtensor \
+            app/src/main/cpp/3rdparty/xtensor-blas \
+            app/src/main/cpp/3rdparty/xtl \
+            app/src/main/cpp/3rdparty/zstd
+
+      - name: Install Rust Android arm64 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          rustup target add aarch64-linux-android
+          rustup target list --installed | grep -Fx aarch64-linux-android
 
       - name: Build Native SD1.5 MNN-only runtime from source
         shell: bash
