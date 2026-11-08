@@ -17,6 +17,18 @@ object BackendCompatibility {
         backendType: String,
         qualcommSoc: Boolean,
         compatibleHexagon: Boolean,
+        mnnOnlyBuild: Boolean = false,
+    ): String? = when {
+        mnnOnlyBuild && backendType != "sd15cpu" ->
+            "This MNN-only build currently supports SD1.5 CPU/OpenCL only; " +
+                "other native backends are still under development."
+        else -> deviceRejection(backendType, qualcommSoc, compatibleHexagon)
+    }
+
+    private fun deviceRejection(
+        backendType: String,
+        qualcommSoc: Boolean,
+        compatibleHexagon: Boolean,
     ): String? = when (backendType) {
         "sd15cpu", "sdxlmnn" -> null
         "sd15npu", "sdxl", "anima", "upscaler" -> if (qualcommSoc) {
