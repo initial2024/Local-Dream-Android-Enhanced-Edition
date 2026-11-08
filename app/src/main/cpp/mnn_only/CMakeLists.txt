@@ -47,6 +47,7 @@ target_include_directories(libstable_diffusion_core.so PRIVATE
     "${NATIVE_ROOT}/src"
     "${THIRD}/MNN/include"
     "${THIRD}/json/include"
+    "${THIRD}/json/include/nlohmann"
     "${THIRD}/cpp-httplib"
     "${THIRD}/stb"
     "${THIRD}/xtensor/include"
