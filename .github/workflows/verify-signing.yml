@@ -1,0 +1,79 @@
+name: Verify fixed Android signing secrets (no APK build)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-signing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-signing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate secrets and fixed certificate, never print private data
+        shell: bash
+        env:
+          ANDROID_SIGNING_KEY_B64: ${{ secrets.ANDROID_SIGNING_KEY_B64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${ANDROID_SIGNING_KEY_B64:?Missing ANDROID_SIGNING_KEY_B64 secret}"
+          : "${ANDROID_STORE_PASSWORD:?Missing ANDROID_STORE_PASSWORD secret}"
+          : "${ANDROID_KEY_ALIAS:?Missing ANDROID_KEY_ALIAS secret}"
+          : "${ANDROID_KEY_PASSWORD:?Missing ANDROID_KEY_PASSWORD secret}"
+
+          umask 077
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          printf '%s' "$ANDROID_SIGNING_KEY_B64" | base64 --decode > "$WORK/release.jks"
+          test -s "$WORK/release.jks"
+
+          EXPECTED_KEY='7ce1e5be8020245bf0a5a47257c2d23ae748f827b64f66d151f1191d335d8a6f'
+          ACTUAL_KEY="$(sha256sum "$WORK/release.jks" | awk '{print $1}')"
+          if [ "$ACTUAL_KEY" != "$EXPECTED_KEY" ]; then
+            echo '::error::Keystore bytes differ from original fixed signing backup'
+            exit 1
+          fi
+
+          keytool -exportcert -rfc -keystore "$WORK/release.jks" \
+            -storepass "$ANDROID_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" \
+            -file "$WORK/cert.pem" > /dev/null 2>&1 || {
+              echo '::error::Wrong keystore password or alias'
+              exit 1
+            }
+          # Verify private key password without exposing the key or passwords.
+          keytool -importkeystore -noprompt \
+            -srckeystore "$WORK/release.jks" \
+            -srcstorepass "$ANDROID_STORE_PASSWORD" \
+            -srcalias "$ANDROID_KEY_ALIAS" \
+            -srckeypass "$ANDROID_KEY_PASSWORD" \
+            -destkeystore "$WORK/test.p12" \
+            -deststoretype PKCS12 \
+            -deststorepass "$ANDROID_STORE_PASSWORD" \
+            -destkeypass "$ANDROID_STORE_PASSWORD" > /dev/null 2>&1 || {
+              echo '::error::Private key password or alias verification failed'
+              exit 1
+            }
+
+          ACTUAL_CERT="$(openssl x509 -in "$WORK/cert.pem" -noout \
+            -fingerprint -sha256 | cut -d= -f2 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          EXPECTED_CERT='C903B3F6BDFA62E2BCB0E7F30534BB626FBA2715B35D6BF7BF80C768A8B103AA'
+          if [ "$ACTUAL_CERT" != "$EXPECTED_CERT" ]; then
+            echo '::error::Signing certificate is not the fixed enhanced app identity'
+            exit 1
+          fi
+
+          echo 'PASS: four Secrets are present; key bytes, alias, passwords and certificate match.'
+          echo 'This test does not build an APK or prove that native image generation works.'
