@@ -9,6 +9,7 @@ on:
       - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
       - 'app/src/main/cpp/mnn_only/**'
       - 'app/src/main/java/io/github/xororz/localdream/service/BackendService.kt'
+      - '.github/workflows/release-basic.yml'
   workflow_dispatch:
 
 permissions:
@@ -50,6 +51,23 @@ jobs:
         run: |
           set -euo pipefail
           python3 enhanced/patch_tokenizers_rust.py
+
+      - name: Remove untrusted unused FlatBuffers sample Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The pinned MNN submodule contains a FlatBuffers Android sample
+          # wrapper rejected by the official Gradle wrapper allowlist.
+          # Never execute it; verify its exact SHA256, then remove just the
+          # sample JAR from this ephemeral CI checkout. Keep validation ON.
+          SAMPLE="app/src/main/cpp/3rdparty/MNN/3rd_party/flatbuffers/samples/android/gradle/wrapper/gradle-wrapper.jar"
+          EXPECTED="ee3739525a995bcb5601621a6e2daec1f183bbefc375743acc235cec33547e04"
+          test -f "$SAMPLE"
+          printf '%s  %s\n' "$EXPECTED" "$SAMPLE" | sha256sum --check --status
+          rm -- "$SAMPLE"
+          test ! -e "$SAMPLE"
+          # The project wrapper MUST remain present for validation.
+          test -s gradle/wrapper/gradle-wrapper.jar
 
       - name: Install Rust Android arm64 target
         shell: bash
