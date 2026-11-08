@@ -386,7 +386,7 @@ internal fun AdvancedSettingsDialog(
                         Slider(
                             value = currentWidth.toFloat(),
                             onValueChange = onSizeChange,
-                            valueRange = 128f..if (showMnnNativeHd) 1024f else 512f,
+                            valueRange = 128f..(if (showMnnNativeHd) 1024f else 512f),
                             steps = if (showMnnNativeHd) 13 else 5,
                             enabled = !isRunning,
                             modifier = Modifier.fillMaxWidth(),
