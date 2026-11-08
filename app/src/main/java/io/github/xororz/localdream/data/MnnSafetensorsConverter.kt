@@ -27,13 +27,22 @@ object MnnSafetensorsConverter {
         requestedName: String,
         clipSkip: Int,
         onProgress: suspend (String) -> Unit = {},
+        // Only the foreground checkpoint installer can call with an existing
+        // ModelStorage reservation. Manual imports always reserve themselves.
+        reservationHeld: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
         if (clipSkip != 1 && clipSkip != 2) {
             throw IOException("Unsupported CLIP skip mode")
         }
-        val modelId = MnnCheckpointPolicy.safeModelId(requestedName)
-            ?: throw IOException("Invalid or reserved model name")
-        if (!ModelStorage.beginMnnImport()) {
+        val modelId = if (reservationHeld && MnnModelSuggestions.options.any {
+                it.modelId == requestedName
+            }) {
+            requestedName
+        } else {
+            MnnCheckpointPolicy.safeModelId(requestedName)
+                ?: throw IOException("Invalid or reserved model name")
+        }
+        if (!reservationHeld && !ModelStorage.beginMnnImport()) {
             throw IOException("Stop generation, downloads and model moves before conversion")
         }
 
@@ -172,7 +181,7 @@ object MnnSafetensorsConverter {
                 if (process.isAlive) process.destroyForcibly()
             }
             staging?.deleteRecursively()
-            ModelStorage.endMnnImport()
+            if (!reservationHeld) ModelStorage.endMnnImport()
         }
     }
 }
