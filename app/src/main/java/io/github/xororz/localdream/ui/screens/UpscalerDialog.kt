@@ -134,6 +134,11 @@ fun UpscalerPickerFlow(
                     }
                 }
 
+                is ModelDownloadService.DownloadState.Converting -> {
+                    // Only SD1.5 checkpoint installation converts; this panel manages upscalers.
+                    Unit
+                }
+
                 is ModelDownloadService.DownloadState.Idle -> {
                     if (downloadingUpscalerId != null && downloadProgress == null) {
                         downloadingUpscalerId = null
