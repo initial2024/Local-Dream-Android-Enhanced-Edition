@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'app/src/main/cpp/mnn_only/**'
+      - 'enhanced/patch_tokenizers_rust.py'
       - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
       - '.github/workflows/native-mnn-probe.yml'
   workflow_dispatch:
@@ -42,6 +43,12 @@ jobs:
             app/src/main/cpp/3rdparty/xtensor-blas \
             app/src/main/cpp/3rdparty/xtl \
             app/src/main/cpp/3rdparty/zstd
+
+      - name: Fix two pinned tokenizer Rust implicit autoref errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 enhanced/patch_tokenizers_rust.py
 
       - name: Install Rust Android arm64 target
         shell: bash
