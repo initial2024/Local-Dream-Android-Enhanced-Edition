@@ -134,6 +134,9 @@ data class Model(
     // their parts are pulled straight from the repositories that publish them
     // instead of being rehosted.
     val packageFiles: List<String> = emptyList(),
+    // Built-in catalogue checkpoint that must be downloaded, SHA256 checked
+    // and converted from SD1.5 safetensors into MNN BEFORE use.
+    val mnnCatalogId: String = "",
 ) {
     val isDit: Boolean get() = ditKind.isNotEmpty()
 
@@ -164,6 +167,20 @@ data class Model(
         }
 
     fun startDownload(context: Context) {
+        if (mnnCatalogId.isNotEmpty()) {
+            val candidate = MnnModelSuggestions.byId(mnnCatalogId) ?: return
+            if (isDownloaded) return
+            val request = Intent(context, ModelDownloadService::class.java).apply {
+                action = ModelDownloadService.ACTION_START_DOWNLOAD
+                putExtra(ModelDownloadService.EXTRA_MODEL_ID, candidate.id)
+                putExtra(ModelDownloadService.EXTRA_MODEL_NAME, candidate.title)
+                putExtra(ModelDownloadService.EXTRA_FILE_URL, candidate.downloadUrl)
+                putExtra(ModelDownloadService.EXTRA_MODEL_TYPE,
+                    ModelDownloadService.TYPE_MNN_CHECKPOINT)
+            }
+            context.startForegroundService(request)
+            return
+        }
         // A multi-file package carries its sources in packageFiles instead.
         if (isCustom || (fileUri.isEmpty() && packageFiles.isEmpty())) return
 
@@ -367,6 +384,18 @@ data class Model(
 
             val files = modelDir.listFiles()
             return files != null && files.isNotEmpty()
+        }
+
+        fun isMnnCatalogReady(context: Context, id: String): Boolean {
+            if (MnnModelSuggestions.byId(id) == null) return false
+            val dir = File(getModelsDir(context), id)
+            return File(dir, "finished").isFile &&
+                MnnModelPackage.requiredFiles.all {
+                    File(dir, it).let { f -> f.isFile && f.length() > 0 }
+                } &&
+                listOf("clip_v2", "unet", "vae_decoder", "vae_encoder").all {
+                    File(dir, "$it.mnn.weight").let { f -> f.isFile && f.length() > 0 }
+                }
         }
 
         fun isDitPackageDownloaded(
@@ -705,10 +734,29 @@ class ModelRepository private constructor(private val context: Context) {
             add(createAbsoluteRealityModelCPU())
             add(createCuteYukiMixModelCPU())
             add(createChilloutMixModelCPU())
+            if (BuildConfig.MNN_ONLY_NATIVE) {
+                MnnModelSuggestions.options.forEach { candidate ->
+                    add(createRecommendedMnnModel(candidate))
+                }
+            }
         }
 
         return customModels + predefinedModels.map { applyConfigDefaults(it) }
     }
+
+    private fun createRecommendedMnnModel(candidate: MnnSuggestedCheckpoint): Model =
+        Model(
+            id = candidate.id,
+            name = candidate.title,
+            description = candidate.purpose,
+            baseUrl = "",
+            generationSize = 512,
+            approximateSize = "2.13GB + convert",
+            isDownloaded = Model.isMnnCatalogReady(context, candidate.id),
+            codeDefaults = ModelConfig(),
+            runOnCpu = true,
+            mnnCatalogId = candidate.id,
+        )
 
     // Load config.json shipped inside the model's downloaded files, keeping
     // any values already merged into configDefaults (e.g. the custom model
@@ -1199,7 +1247,9 @@ class ModelRepository private constructor(private val context: Context) {
             models = withContext(Dispatchers.IO) {
                 current.map { model ->
                     if (model.id == modelId) {
-                        val isDownloaded = if (model.isDit) {
+                        val isDownloaded = if (model.mnnCatalogId.isNotEmpty()) {
+                            Model.isMnnCatalogReady(context, modelId)
+                        } else if (model.isDit) {
                             Model.isDitPackageDownloaded(
                                 context,
                                 modelId,
@@ -1242,6 +1292,7 @@ class ModelRepository private constructor(private val context: Context) {
             // SD 1.5 CPU
             "anythingv5cpu", "qteamixcpu", "cuteyukimixcpu",
             "absoluterealitycpu", "chilloutmixcpu",
+            "dreamshaper8mnn", "realisticvisionv6mnn",
             // DiT
             "z_image_turbo", "flux2_klein_4b", "flux2_klein_9b", "qwen_image_2_1",
             "flux3_image_klein", "qwen_image_2_1_turbo", "krea_2_turbo",
