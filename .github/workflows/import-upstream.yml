@@ -1,0 +1,65 @@
+name: Import pinned Local Dream source and apply enhancement overlay
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: localdream-source-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: "${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[bootstrap-localdream]') }}"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout enhanced repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Set Git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Fetch EXACT upstream release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add localdream-upstream https://github.com/xororz/local-dream.git
+          git fetch --depth=1 localdream-upstream tag v3.0.0-alpha.7
+          expected=2f1f3ba186eeca2a52268540108b3ee6e2296d17
+          actual="$(git rev-parse FETCH_HEAD)"
+          echo "Expected upstream: $expected"
+          echo "Fetched upstream: $actual"
+          test "$actual" = "$expected"
+      - name: Merge original source with provenance and gitlinks intact
+        run: |
+          set -euo pipefail
+          test ! -e app/build.gradle.kts || { echo 'ERROR: upstream is already imported'; exit 1; }
+          git merge --allow-unrelated-histories --no-ff -m "chore: merge pinned xororz Local Dream v3.0.0-alpha.7" FETCH_HEAD
+          test -f LICENSE
+          test -f app/build.gradle.kts
+          test -f .gitmodules
+      - name: Apply small, auditable Android enhancement patches
+        run: |
+          set -euo pipefail
+          python3 enhanced/apply_overlay.py
+          python3 enhanced/apply_overlay.py --check
+      - name: Commit only the enhanced changes
+        run: |
+          set -euo pipefail
+          git add --             app/build.gradle.kts             app/src/main/java/io/github/xororz/localdream/data/DitResolution.kt             app/src/main/java/io/github/xororz/localdream/ui/screens/AdvancedSettingsDialog.kt             app/src/main/java/io/github/xororz/localdream/ui/screens/ModelRunScreen.kt             app/src/main/java/io/github/xororz/localdream/ui/screens/ModelRunPages.kt             app/src/main/java/io/github/xororz/localdream/utils/HighDefinitionOutput.kt             app/src/main/res/values/strings.xml             app/src/main/res/values-zh/strings.xml             app/src/test/java/io/github/xororz/localdream/data/DitResolutionEnhancedTest.kt
+          git diff --cached --stat
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "feat(android): independent basic edition and explicit 1440x1080 HD export"
+          git push origin HEAD:main
+      - name: Record source link
+        run: |
+          echo "Upstream: https://github.com/xororz/local-dream/tree/2f1f3ba186eeca2a52268540108b3ee6e2296d17"
+          echo "Enhanced repo: https://github.com/initial2024/Local-Dream-Android-Enhanced-Edition"
