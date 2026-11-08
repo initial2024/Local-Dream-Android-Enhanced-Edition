@@ -1,0 +1,127 @@
+name: Signed basic release — native and certificate gates
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout original source and enhancement code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Gate 1 — real Android native inference core required
+        shell: bash
+        run: |
+          set -euo pipefail
+          NATIVE="app/src/main/jniLibs/arm64-v8a/libstable_diffusion_core.so"
+          if [ ! -s "$NATIVE" ]; then
+            echo "::error::Native inference core missing. Build from appropriately licensed dependencies first."
+            exit 1
+          fi
+          file "$NATIVE"
+          file "$NATIVE" | grep -q 'ELF 64-bit.*ARM aarch64'
+          sha256sum "$NATIVE"
+
+      - name: Gate 2 — fixed signing secrets must be present
+        shell: bash
+        env:
+          ANDROID_SIGNING_KEY_B64: ${{ secrets.ANDROID_SIGNING_KEY_B64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_SIGNING_KEY_B64"
+          test -n "$ANDROID_STORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          mkdir -p "$HOME/.gradle"
+          umask 077
+          printf '%s' "$ANDROID_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/localdream-fixed-release.jks"
+          test -s "$RUNNER_TEMP/localdream-fixed-release.jks"
+          {
+            printf 'RELEASE_STORE_FILE=%s\n' "$RUNNER_TEMP/localdream-fixed-release.jks"
+            printf 'RELEASE_STORE_PASSWORD=%s\n' "$ANDROID_STORE_PASSWORD"
+            printf 'RELEASE_KEY_ALIAS=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'RELEASE_KEY_PASSWORD=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > "$HOME/.gradle/gradle.properties"
+          chmod 600 "$HOME/.gradle/gradle.properties"
+
+      - name: Setup JDK 17 and pinned Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Setup Android SDK 37.0 preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0" --channel=3
+          test -f "$ANDROID_HOME/platforms/android-37.0/android.jar"
+
+      - name: Compile, test, shrink and sign basicRelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 enhanced/apply_overlay.py --check
+          gradle --no-daemon :app:testBasicDebugUnitTest :app:assembleBasicRelease
+
+      - name: Gate 3 — verify package, native ABI, variant and fixed cert
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/basic/release -name '*.apk' -type f | head -n1)"
+          test -n "$APK"
+          test -s "$APK"
+          test "$(find app/build/outputs/apk/basic/release -name '*.apk' -type f | wc -l)" -eq 1
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='io.github.initial2024.localdream.enhanced'"
+          unzip -Z1 "$APK" | grep -Fxq 'lib/arm64-v8a/libstable_diffusion_core.so'
+          if unzip -Z1 "$APK" | grep -q 'safety_checker.mnn'; then
+            echo "::error::The basic flavor unexpectedly contains filter weights."
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK" | tee "$RUNNER_TEMP/cert-report.txt"
+          ACTUAL="$(awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print toupper($2)}' "$RUNNER_TEMP/cert-report.txt")"
+          EXPECTED='C903B3F6BDFA62E2BCB0E7F30534BB626FBA2715B35D6BF7BF80C768A8B103AA'
+          test -n "$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Wrong signing certificate; distribution is forbidden."
+            exit 1
+          fi
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Upload verified signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalDreamEnhanced-basicRelease-signed
+          path: ${{ env.APK }}
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Erase runner copy of private signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$HOME/.gradle/gradle.properties" "$RUNNER_TEMP/localdream-fixed-release.jks"
