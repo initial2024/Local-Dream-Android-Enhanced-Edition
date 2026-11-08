@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavController
+import io.github.xororz.localdream.BuildConfig
 import io.github.xororz.localdream.R
 import io.github.xororz.localdream.data.*
 import io.github.xororz.localdream.data.DarkModePreference
@@ -312,6 +313,8 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
 
     var showHelpDialog by remember { mutableStateOf(false) }
 
+    // The old upstream onboarding modal is not appropriate for the enhanced
+    // MNN-only edition. Help remains available explicitly in the overflow menu.
     val isFirstLaunch = remember {
         context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
             .getBoolean("is_first_launch", true)
@@ -370,9 +373,11 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
 
     LaunchedEffect(Unit) {
         if (isFirstLaunch) {
-            showHelpDialog = true
-            // Written here instead of inside remember: composition may be
-            // discarded, effects only run once it is committed.
+            if (!BuildConfig.MNN_ONLY_NATIVE) {
+                // Preserve upstream onboarding in its original full edition.
+                showHelpDialog = true
+            }
+            // Enhanced app never interrupts first use with the legacy modal.
             context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                 .edit { putBoolean("is_first_launch", false) }
         }
