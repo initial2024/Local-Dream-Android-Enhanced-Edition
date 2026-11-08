@@ -280,6 +280,10 @@ class BackgroundGenerationService : Service() {
         // Set once the complete event is fully handled; a socket teardown
         // racing the service shutdown after that point is not an error.
         var completed = false
+        // Monotonic clock includes pipeline work and local transport, but not
+        // model download. This records observed time rather than claiming
+        // a speed gain from a code change before phone benchmarks.
+        val generationStartMs = SystemClock.elapsedRealtime()
         try {
             updateState(GenerationState.Progress(0f))
 
@@ -505,6 +509,13 @@ class BackgroundGenerationService : Service() {
                                             returnedSeed,
                                         ),
                                     )
+                                    val wallMs = SystemClock.elapsedRealtime() - generationStartMs
+                                    Log.i(
+                                        "InferenceMetrics",
+                                        "completed duration_ms=$wallMs output=${resultWidth}x$resultHeight " +
+                                            "canvas=${width}x$height opencl=$useOpenCL " +
+                                            "model=${BackendService.servingModelId.value ?: "unknown"}",
+                                    )
 
                                     Log.d(
                                         "BgGenService",
@@ -562,6 +573,11 @@ class BackgroundGenerationService : Service() {
                 updateState(GenerationState.Idle)
             } else {
                 Log.e("GenerationService", "generation error", e)
+                Log.i(
+                    "InferenceMetrics",
+                    "failed duration_ms=${SystemClock.elapsedRealtime() - generationStartMs} " +
+                        "canvas=${width}x$height opencl=$useOpenCL",
+                )
                 updateState(
                     GenerationState.Error(
                         e.message ?: this@BackgroundGenerationService.getString(R.string.unknown_error),
