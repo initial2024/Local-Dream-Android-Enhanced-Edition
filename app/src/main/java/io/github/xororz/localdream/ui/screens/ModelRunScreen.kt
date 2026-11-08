@@ -3773,6 +3773,36 @@ fun ModelRunScreen(
                 if (isUltrafixParams) {
                     saveUltrafixParams()
                 }
+                // History stores output dimensions, not necessarily the native
+                // canvas. Restore a legal input resolution for text-to-image;
+                // do not copy an upscaled/UltraFix output size into inference.
+                if (params.mode == GenerationMode.TXT2IMG) {
+                    when {
+                        model?.isDit == true -> {
+                            currentWidth = snapDitSize(params.width.toFloat())
+                            currentHeight = snapDitSize(params.height.toFloat())
+                            aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
+                        }
+                        model?.runOnCpu == true && model?.usesFixedCanvas != true -> {
+                            val size = params.width
+                            if (params.width == params.height &&
+                                size in 128..512 && size % 64 == 0
+                            ) {
+                                currentWidth = size
+                                currentHeight = size
+                            }
+                        }
+                        model?.usesFixedCanvas != true && model?.runOnCpu == false -> {
+                            val valid = availableResolutions.any {
+                                it.width == params.width && it.height == params.height
+                            }
+                            if (valid) {
+                                currentWidth = params.width
+                                currentHeight = params.height
+                            }
+                        }
+                    }
+                }
                 if (model?.usesFixedCanvas == true && useImg2img) {
                     val newRatio = inferAspectRatioString(params.width, params.height)
                     if (newRatio != aspectRatio) {
