@@ -2,7 +2,9 @@ name: Publish signed MNN device-test APK and ZIP
 
 on:
   workflow_run:
-    workflows: ["Signed basic release — native and certificate gates"]
+    workflows:
+      - "Signed basic release — native and certificate gates"
+      - "Fast signed MNN device-test from pinned native artifact"
     types: [completed]
 
 permissions:
