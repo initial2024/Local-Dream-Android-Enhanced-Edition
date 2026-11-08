@@ -310,10 +310,10 @@ internal fun ModelRunResultPage(
                             }
                         }
 
-                        if (currentBitmap != null &&
-                            HighDefinitionOutput.isHdCanvas(currentBitmap.width, currentBitmap.height)
-                        ) {
-                            TextButton(onClick = { onSaveHdClick(currentBitmap) }) {
+                        // Available for MNN CPU/GPU outputs on MediaTek as well as DiT.
+                        // Scaling a smaller image does not imply extra diffusion detail.
+                        currentBitmap?.let { bitmap ->
+                            TextButton(onClick = { onSaveHdClick(bitmap) }) {
                                 Text(stringResource(R.string.enhanced_hd_export))
                             }
                         }
