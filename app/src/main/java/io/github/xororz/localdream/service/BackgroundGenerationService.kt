@@ -284,6 +284,10 @@ class BackgroundGenerationService : Service() {
         // model download. This records observed time rather than claiming
         // a speed gain from a code change before phone benchmarks.
         val generationStartMs = SystemClock.elapsedRealtime()
+        // Time-to-first-progress covers server-side prompt encoding, OpenCL
+        // preparation and first denoising step. It is separate from the total
+        // request time, and never stores prompts or private image content.
+        var firstProgressMs: Long? = null
         try {
             updateState(GenerationState.Progress(0f))
 
@@ -369,6 +373,10 @@ class BackgroundGenerationService : Service() {
 
                             when (message.optString("type")) {
                                 "progress" -> {
+                                    if (firstProgressMs == null) {
+                                        firstProgressMs =
+                                            SystemClock.elapsedRealtime() - generationStartMs
+                                    }
                                     val step = message.optInt("step")
                                     val totalSteps = message.optInt("total_steps")
                                     val progress = step.toFloat() / totalSteps
@@ -512,7 +520,9 @@ class BackgroundGenerationService : Service() {
                                     val wallMs = SystemClock.elapsedRealtime() - generationStartMs
                                     Log.i(
                                         "InferenceMetrics",
-                                        "completed duration_ms=$wallMs output=${resultWidth}x$resultHeight " +
+                                        "completed duration_ms=$wallMs " +
+                                            "first_progress_ms=${firstProgressMs ?: -1} " +
+                                            "output=${resultWidth}x$resultHeight " +
                                             "canvas=${width}x$height opencl=$useOpenCL " +
                                             "model=${BackendService.servingModelId.value ?: "unknown"}",
                                     )
