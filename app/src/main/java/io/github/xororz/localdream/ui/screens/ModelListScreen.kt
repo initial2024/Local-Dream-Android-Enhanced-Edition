@@ -2359,7 +2359,7 @@ fun ModelCard(
                         InfoChip(
                             icon = Icons.Default.AspectRatio,
                             label = if (model.runOnCpu) {
-                                "128~512"
+                                if (BuildConfig.MNN_ONLY_NATIVE) "128~1024*" else "128~512"
                             } else {
                                 "${model.generationSize}×${model.generationSize}"
                             },
