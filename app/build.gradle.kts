@@ -99,6 +99,10 @@ android {
         create("basic") {
             dimension = "version"
             versionNameSuffix = ""
+            // Our independently built basic release currently ships ONLY the
+            // experimental SD1.5 MNN-only native executable. Do not advertise
+            // Snapdragon NPU, DiT or unsupported SDXL in this build.
+            buildConfigField("boolean", "MNN_ONLY_NATIVE", "true")
         }
         create("filter") {
             dimension = "version"
