@@ -14,8 +14,9 @@ fun NavController.popBackStackIfResumed(): Boolean {
 
 sealed class Screen(val route: String) {
     object ModelList : Screen("model_list")
-    object ModelRun : Screen("model_run/{modelId}?remote={remote}") {
-        fun createRoute(modelId: String, remote: Boolean = false) = "model_run/$modelId?remote=$remote"
+    object ModelRun : Screen("model_run/{modelId}?remote={remote}&historyId={historyId}") {
+        fun createRoute(modelId: String, remote: Boolean = false, historyId: Long = -1L) =
+            "model_run/$modelId?remote=$remote&historyId=$historyId"
     }
 
     object Upscale : Screen("upscale")
