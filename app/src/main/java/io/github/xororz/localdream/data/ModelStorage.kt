@@ -240,7 +240,9 @@ object ModelStorage {
      * are. [block] must publish the state [isBusy] looks at, so a move that
      * starts afterwards sees it.
      */
-    fun <T> unlessMoving(block: () -> T): T? = synchronized(gate) { if (moving) null else block() }
+    fun <T> unlessMoving(block: () -> T): T? = synchronized(gate) {
+        if (moving || importingMnnModel) null else block()
+    }
 
     /** Reserve the model directory for one non-destructive MNN package import. */
     fun beginMnnImport(): Boolean = synchronized(gate) {
