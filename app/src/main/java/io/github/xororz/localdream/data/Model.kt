@@ -658,16 +658,22 @@ class ModelRepository private constructor(private val context: Context) {
                 add(createCyberRealisticV10Model())
                 add(createCyberRealisticV10Dmd2Model())
             }
-            add(createAnythingV5Model())
+            // Do not offer Qualcomm Hexagon/QNN model packages on MediaTek,
+            // Exynos or other non-Qualcomm chipsets. Otherwise users download
+            // large, incompatible packages that cannot run on their device.
+            if (Model.isQualcommDevice()) {
+                add(createAnythingV5Model())
+                add(createQteaMixModel())
+                add(createAbsoluteRealityModel())
+                add(createCuteYukiMixModel())
+                add(createChilloutMixModel())
+            }
+            // MNN CPU/OpenCL choices remain available on non-Qualcomm devices.
             add(createAnythingV5ModelCPU())
-            add(createQteaMixModel())
             add(createQteaMixModelCPU())
-            add(createAbsoluteRealityModel())
             add(createAbsoluteRealityModelCPU())
-            add(createCuteYukiMixModel())
             add(createCuteYukiMixModelCPU())
             add(createChilloutMixModelCPU())
-            add(createChilloutMixModel())
         }
 
         return customModels + predefinedModels.map { applyConfigDefaults(it) }
