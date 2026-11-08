@@ -24,7 +24,7 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,6 +44,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Install and cache pinned Gradle distribution
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
       - name: Use runner-provided Android command line tools
         run: |
           set -euo pipefail
@@ -61,8 +65,9 @@ jobs:
           test -f "$ANDROID_HOME/platforms/android-37.0/android.jar"
       - name: Run Kotlin unit tests without packaging or signing an APK
         run: |
-          chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:testBasicDebugUnitTest
+          # Execute the cached pinned distribution instead of making the
+          # wrapper download 130 MB over an occasionally timing-out endpoint.
+          gradle --no-daemon --stacktrace :app:testBasicDebugUnitTest
       - name: Assert no production APK is produced by this verification job
         run: |
           echo "Compile/unit test only: a successful job is NOT a signed build, NPU runtime proof or device benchmark."
