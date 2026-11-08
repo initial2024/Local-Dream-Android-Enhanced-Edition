@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.xororz.localdream.R
+import io.github.xororz.localdream.data.MnnNativeResolution
 import io.github.xororz.localdream.data.Resolution
 import kotlin.math.roundToInt
 
@@ -66,6 +67,7 @@ internal fun AdvancedSettingsDialog(
     cfg: Float,
     useOpenCL: Boolean,
     showMnnCpuThreads: Boolean = false,
+    showMnnNativeHd: Boolean = false,
     cpuThreads: Int = 4,
     batchCounts: Int,
     denoiseStrength: Float,
@@ -367,10 +369,10 @@ internal fun AdvancedSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                // The free 128-512 slider belongs to SD1.5 CPU. SDXL MNN also runs
-                // on CPU/GPU but renders on the fixed 1024 canvas like every other
-                // SDXL package, so it must not be offered a range it cannot use.
-                // The runtime picker below stays for both.
+                // Standard SD1.5 stays at the familiar 128..512 canvas.
+                // The MNN-only enhanced build can explicitly request more
+                // native diffusion pixels; the device must still be tested
+                // for memory use and OpenCL stability. SDXL remains separate.
                 if (runOnCpu && !isSdxl) {
                     Column {
                         Text(
@@ -384,9 +386,42 @@ internal fun AdvancedSettingsDialog(
                         Slider(
                             value = currentWidth.toFloat(),
                             onValueChange = onSizeChange,
-                            valueRange = 128f..512f,
-                            steps = 5,
+                            valueRange = 128f..(if (showMnnNativeHd) 1024f else 512f),
+                            steps = if (showMnnNativeHd) 13 else 5,
+                            enabled = !isRunning,
                             modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                if (showMnnNativeHd && runOnCpu && !isSdxl) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            stringResource(R.string.enhanced_mnn_native_hd_title),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            MnnNativeResolution.presets.forEach { resolution ->
+                                ToggleButton(
+                                    checked = currentWidth == resolution.width &&
+                                        currentHeight == resolution.height,
+                                    onCheckedChange = { checked ->
+                                        if (checked && !isRunning) onResolutionSelected(resolution)
+                                    },
+                                    enabled = !isRunning,
+                                ) {
+                                    Text("${resolution.width}×${resolution.height}")
+                                }
+                            }
+                        }
+                        Text(
+                            stringResource(R.string.enhanced_mnn_native_hd_warning),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }

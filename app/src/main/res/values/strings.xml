@@ -541,4 +541,6 @@
     <string name="enhanced_hd_export">Export 1440×1080 (scale / center crop)</string>
     <string name="enhanced_reproduce_limit">Restores stored settings. Original source images, masks, model checksums and engine revision were not preserved: identical pixels are not guaranteed.</string>
     <string name="enhanced_mnn_cpu_threads">MNN CPU threads: %1$d (takes effect when model restarts)</string>
+    <string name="enhanced_mnn_native_hd_title">Native AI resolution (experimental)</string>
+    <string name="enhanced_mnn_native_hd_warning">512×512 is standard SD1.5. Larger sizes run diffusion at the selected real pixel dimensions, not just resize an export. 768/1024 can use much more RAM, run slower, change composition or fail on some Mali drivers. Test 640, then 768 before 1024. 1440×1080 export remains scaled/cropped unless a separately verified AI upscaler is selected.</string>
 </resources>

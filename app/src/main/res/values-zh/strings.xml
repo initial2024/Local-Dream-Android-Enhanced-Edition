@@ -530,4 +530,6 @@
     <string name="enhanced_hd_export">导出 1440×1080（缩放／居中裁剪）</string>
     <string name="enhanced_reproduce_limit">仅恢复已记录的参数。原始输入图、蒙版、模型校验值及引擎版本未完整保存，因此不保证生成结果逐像素一致。</string>
     <string name="enhanced_mnn_cpu_threads">MNN CPU 线程：%1$d（重启模型后生效）</string>
+    <string name="enhanced_mnn_native_hd_title">AI 原生生成像素（实验性）</string>
+    <string name="enhanced_mnn_native_hd_warning">512×512 为 SD1.5 标准画布。更大尺寸将真正参与模型推理，不是仅放大导出图片。但 768/1024 会显著增加内存和耗时，可能改变构图或因 Mali 驱动兼容性失败。先测试 640，再测试 768，最后再尝试 1024。单独的 1440×1080 导出仍是缩放/裁剪，除非明确使用已验证的 AI 超分模型。</string>
 </resources>

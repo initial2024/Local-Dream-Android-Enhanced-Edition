@@ -140,6 +140,17 @@ std::string encodeImage(const GenerationResult &result,
                                    result.image_data.end()));
 }
 
+// Validate before parseGenerationRequest constructs latent/noise buffers.
+bool isAllowedNativeCanvas(int width, int height) {
+  constexpr int kMinSide = 128;
+  constexpr int kMaxSide = 1024;
+  constexpr long long kMaxPixels = 1024LL * 1024;
+  return width >= kMinSide && height >= kMinSide &&
+         width <= kMaxSide && height <= kMaxSide &&
+         width % 64 == 0 && height % 64 == 0 &&
+         static_cast<long long>(width) * height <= kMaxPixels;
+}
+
 void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
   server.Post("/generate", [&pipeline](const httplib::Request &request,
                                         httplib::Response &res) {
@@ -154,6 +165,16 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
         return;
       }
       const auto body = nlohmann::json::parse(request.body);
+      const int requestedWidth =
+          body.contains("size") ? body.at("size").get<int>() :
+                                  body.value("width", 512);
+      const int requestedHeight =
+          body.contains("size") ? requestedWidth : body.value("height", 512);
+      if (!isAllowedNativeCanvas(requestedWidth, requestedHeight)) {
+        throw std::invalid_argument(
+            "SD1.5 MNN native canvas must be 128..1024 in both dimensions, "
+            "multiple of 64 and <= 1048576 total pixels");
+      }
       auto input = std::make_shared<GenerationRequest>(
           parseGenerationRequest(body, false, false,
                                  pipeline.supportsImg2Img(),
@@ -166,12 +187,11 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
           input->negative_prompt.size() > 8192) {
         throw std::invalid_argument("Out-of-range generation parameters");
       }
-      // Existing SD 1.5 MNN UI offers 128..512 square.
-      // outputs remain a separate post-process, not claimed as native.
-      if (input->width != input->height || input->width < 128 ||
-          input->width > 512 || (input->width % 64) != 0) {
+      // Validate the resolved request too. 1024x768 runs at native MNN
+      // latent resolution; 1440x1080 export is a separate resize operation.
+      if (!isAllowedNativeCanvas(input->width, input->height)) {
         throw std::invalid_argument(
-            "SD1.5 MNN native canvas must be square, 128..512 (step 64)");
+            "Resolved native canvas exceeds the SD1.5 MNN safety bound");
       }
       res.set_header("Cache-Control", "no-store");
       res.set_chunked_content_provider(

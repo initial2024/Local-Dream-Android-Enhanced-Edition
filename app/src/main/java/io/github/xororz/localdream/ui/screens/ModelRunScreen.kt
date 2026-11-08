@@ -145,6 +145,7 @@ import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
 import io.github.xororz.localdream.data.ModelRepository
 import io.github.xororz.localdream.data.MnnCpuThreads
+import io.github.xororz.localdream.data.MnnNativeResolution
 import io.github.xororz.localdream.data.ModelStorage
 import io.github.xororz.localdream.data.PatchScanner
 import io.github.xororz.localdream.data.RemoteRepository
@@ -685,7 +686,10 @@ fun ModelRunScreen(
     val onSizeChange = remember {
         { value: Float ->
             val rounded = (value / 64).roundToInt() * 64
-            val newSize = rounded.coerceIn(128, 512)
+            val newSize = rounded.coerceIn(
+                MnnNativeResolution.MIN_SIDE,
+                if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) MnnNativeResolution.MAX_SIDE else 512,
+            )
             currentWidth = newSize
             currentHeight = newSize
             saveAllFields()
@@ -1784,6 +1788,9 @@ fun ModelRunScreen(
 
                     currentWidth = resolution.width
                     currentHeight = resolution.height
+                    if (BuildConfig.MNN_ONLY_NATIVE && model?.runOnCpu == true && !isRemote) {
+                        aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
+                    }
                     scope.launch {
                         generationPreferences.saveResolution(
                             modelId,
@@ -2097,6 +2104,8 @@ fun ModelRunScreen(
                                     cfg = cfg,
                                     useOpenCL = useOpenCL,
                                     showMnnCpuThreads = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
+                                    showMnnNativeHd = BuildConfig.MNN_ONLY_NATIVE && !isRemote &&
+                                        model?.runOnCpu == true && model?.usesFixedCanvas != true,
                                     cpuThreads = mnnCpuThreads,
                                     batchCounts = batchCounts,
                                     denoiseStrength = denoiseStrength,

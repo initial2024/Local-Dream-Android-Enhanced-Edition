@@ -209,7 +209,7 @@ class DitResolutionEnhancedTest {
 
 def check():
     contracts = {
-        "app/build.gradle.kts": ["io.github.initial2024.localdream.enhanced", "0.1.0-alpha.1"],
+        "app/build.gradle.kts": ["io.github.initial2024.localdream.enhanced", "0.1.0-alpha."],
         "app/src/main/java/io/github/xororz/localdream/data/DitResolution.kt": ["value == 1440"],
         "app/src/main/java/io/github/xororz/localdream/ui/screens/AdvancedSettingsDialog.kt": ["onDitHdPreset:"],
         "app/src/main/java/io/github/xororz/localdream/ui/screens/ModelRunScreen.kt": ["onSaveHdClick =", "onDitHdPreset ="],
