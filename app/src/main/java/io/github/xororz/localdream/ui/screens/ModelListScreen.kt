@@ -700,6 +700,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
     if (showCustomModelDialog) {
         CustomModelDialog(
             context,
+            allowLora = !BuildConfig.MNN_ONLY_NATIVE,
             onDismiss = { showCustomModelDialog = false },
             onModelAdded = { modelName, fileUri, clipSkip, loraFiles ->
                 showCustomModelDialog = false
@@ -2985,6 +2986,7 @@ fun CustomNpuModelDialog(context: Context, onDismiss: () -> Unit, onModelAdded: 
 @Composable
 fun CustomModelDialog(
     context: Context,
+    allowLora: Boolean = true,
     onDismiss: () -> Unit,
     onModelAdded: (String, Uri, Int, List<LoRAFile>) -> Unit,
 ) {
@@ -3081,7 +3083,9 @@ fun CustomModelDialog(
 
                 FilledTonalButton(
                     onClick = {
-                        filePickerLauncher.launch("application/octet-stream")
+                        filePickerLauncher.launch(
+                            if (allowLora) "application/octet-stream" else "*/*",
+                        )
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -3105,6 +3109,7 @@ fun CustomModelDialog(
                     )
                 }
 
+                if (allowLora) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -3210,6 +3215,7 @@ fun CustomModelDialog(
                             }
                         }
                     }
+                }
                 }
             }
         },
