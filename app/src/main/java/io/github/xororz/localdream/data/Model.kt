@@ -546,7 +546,15 @@ class ModelRepository private constructor(private val context: Context) {
 
     suspend fun ensureLoaded() {
         if (isLoaded) return
-        refreshAllModels()
+        // Multiple screens can request initial loading before the first
+        // asynchronous disk scan finishes. Recheck after acquiring the lock
+        // to avoid repeatedly scanning every 1GB+ model package at startup.
+        refreshMutex.withLock {
+            if (isLoaded) return
+            baseUrl = generationPreferences.getBaseUrl()
+            models = withContext(Dispatchers.IO) { initializeModels() }
+            isLoaded = true
+        }
     }
 
     private fun scanCustomModels(): List<Model> {
