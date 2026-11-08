@@ -1,10 +1,22 @@
 name: Signed basic release — native and certificate gates
 
 on:
+  # Test-only signed artifact when the reviewed native hardening changes
+  # reach main. This is not a published GitHub Release or a phone benchmark.
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
+      - 'app/src/main/cpp/mnn_only/**'
+      - 'app/src/main/java/io/github/xororz/localdream/service/BackendService.kt'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: signed-basic-test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -162,7 +174,7 @@ jobs:
       - name: Upload verified signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: LocalDreamEnhanced-basicRelease-signed
+          name: LocalDreamEnhanced-basicRelease-signed-DEVICE-UNVERIFIED
           path: ${{ env.APK }}
           retention-days: 7
           if-no-files-found: error
