@@ -2,9 +2,10 @@ name: Publish signed MNN device-test APK and ZIP
 
 on:
   workflow_run:
+    # Publish just once from the full from-source verified release.
+    # The pinned fast build remains a parallel smoke/diagnostics build.
     workflows:
       - "Signed basic release — native and certificate gates"
-      - "Fast signed MNN device-test from pinned native artifact"
     types: [completed]
 
 permissions:
