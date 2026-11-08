@@ -1822,7 +1822,14 @@ fun ModelRunScreen(
                         model?.let { m ->
                             val serviceIntent =
                                 Intent(context, BackendService::class.java).apply {
-                                    action = BackendService.ACTION_RESTART
+                                    // The MNN-only SD1.5 server supports dynamic
+                                    // canvas sizes without process restart. Do
+                                    // not reload tokenizer/embeddings just for
+                                    // a 512→640 or 640→768 size change.
+                                    if (!(BuildConfig.MNN_ONLY_NATIVE &&
+                                            m.backendType == "sd15cpu")) {
+                                        action = BackendService.ACTION_RESTART
+                                    }
                                     putExtra("modelId", modelId)
                                     putExtra("backendType", m.backendType)
                                     putExtra("width", resolution.width)
