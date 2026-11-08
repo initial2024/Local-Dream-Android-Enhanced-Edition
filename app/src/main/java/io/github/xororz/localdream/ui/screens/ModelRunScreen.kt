@@ -137,6 +137,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import io.github.xororz.localdream.BuildConfig
 import io.github.xororz.localdream.R
+import io.github.xororz.localdream.navigation.Screen
 import io.github.xororz.localdream.data.GenerationDefaults
 import io.github.xororz.localdream.data.GenerationMode
 import io.github.xororz.localdream.data.GenerationPreferences
@@ -271,6 +272,12 @@ fun ModelRunScreen(
         onDispose { view.keepScreenOn = false }
     }
 
+    var showModelSwitcher by remember { mutableStateOf(false) }
+    val interchangeableMnnModels = remember(modelRepository.models) {
+        modelRepository.models
+            .filter { it.isDownloaded && it.backendType == "sd15cpu" }
+            .sortedWith(compareBy({ it.name.lowercase() }, { it.id }))
+    }
     var showResetConfirmDialog by remember { mutableStateOf(false) }
     var showOpenCLWarningDialog by remember { mutableStateOf(false) }
     var showInterruptDialog by remember { mutableStateOf(false) }
@@ -2848,22 +2855,86 @@ fun ModelRunScreen(
                     title = {
                         // Hide title when collapsed
                         if (scrollBehavior.state.collapsedFraction < 0.5f) {
-                            Column {
-                                Text(
-                                    text = model?.name ?: "Running Model",
-                                    fontWeight = FontWeight.Normal,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                )
-                                Text(
-                                    text = model?.description ?: "",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                )
+                            Box {
+                                Column(
+                                    modifier = if (BuildConfig.MNN_ONLY_NATIVE && !isRemote && !isRunning) {
+                                        Modifier.clickable { showModelSwitcher = true }
+                                    } else {
+                                        Modifier
+                                    },
+                                ) {
+                                    Text(
+                                        text = model?.name ?: "Running Model",
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                    )
+                                    Text(
+                                        text = if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) {
+                                            stringResource(R.string.enhanced_switch_mnn_model_hint)
+                                        } else {
+                                            model?.description ?: ""
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+                                if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) {
+                                    DropdownMenu(
+                                        expanded = showModelSwitcher && !isRunning,
+                                        onDismissRequest = { showModelSwitcher = false },
+                                    ) {
+                                        interchangeableMnnModels.forEach { candidate ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        candidate.name +
+                                                            (if (candidate.id == modelId) " ✓" else ""),
+                                                    )
+                                                },
+                                                enabled = !isRunning && candidate.id != modelId,
+                                                onClick = {
+                                                    showModelSwitcher = false
+                                                    if (candidate.id != modelId && !isRunning) {
+                                                        // One active native model at a time:
+                                                        // dispose the old generation/backend
+                                                        // before navigating to the replacement.
+                                                        cleanup()
+                                                        BackgroundGenerationService.clearCompleteState()
+                                                        val currentDestinationId = navController.currentDestination?.id
+                                                        navController.navigate(
+                                                            Screen.ModelRun.createRoute(candidate.id),
+                                                        ) {
+                                                            if (currentDestinationId != null) {
+                                                                popUpTo(currentDestinationId) { inclusive = true }
+                                                            }
+                                                            launchSingleTop = true
+                                                        }
+                                                    }
+                                                },
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(stringResource(R.string.enhanced_manage_mnn_models))
+                                            },
+                                            onClick = {
+                                                showModelSwitcher = false
+                                                if (!isRunning) {
+                                                    cleanup()
+                                                    BackgroundGenerationService.clearCompleteState()
+                                                    navController.navigate(Screen.ModelList.route) {
+                                                        popUpTo(Screen.ModelList.route) { inclusive = false }
+                                                        launchSingleTop = true
+                                                    }
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     },
