@@ -1,13 +1,8 @@
 name: Native MNN-only Android arm64 compile probe
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'app/src/main/cpp/mnn_only/**'
-      - 'enhanced/patch_tokenizers_rust.py'
-      - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
-      - '.github/workflows/native-mnn-probe.yml'
+  # Each reviewed PR runs a native compile; the signed release workflow
+  # already compiles the core after merge, so avoid compiling it twice.
   pull_request:
     paths:
       - 'app/src/main/cpp/mnn_only/**'
