@@ -74,6 +74,7 @@ internal fun AdvancedSettingsDialog(
     onResolutionSelected: (Resolution) -> Unit,
     onDitWidthChange: (Float) -> Unit = {},
     onDitHeightChange: (Float) -> Unit = {},
+    onDitHdPreset: () -> Unit = {},
     onSchedulerChange: (String) -> Unit,
     onStepsChange: (Float) -> Unit,
     onCfgChange: (Float) -> Unit,
@@ -177,6 +178,14 @@ internal fun AdvancedSettingsDialog(
                 }
                 if (isDit) {
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = onDitHdPreset, enabled = !isRunning) {
+                            Text(stringResource(R.string.enhanced_hd_preset))
+                        }
+                        Text(
+                            stringResource(R.string.enhanced_hd_warning),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Text(
                             stringResource(R.string.image_size, currentWidth, currentHeight),
                             style = MaterialTheme.typography.bodyMedium,

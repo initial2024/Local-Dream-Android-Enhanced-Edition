@@ -525,4 +525,7 @@
     <string name="model_storage_name_clash">Download 文件夹不区分大小写，以下名称会覆盖其他模型或嵌入：%1$s。请先重命名或删除它们。</string>
     <string name="model_storage_conflict">%1$s 中已存在 %2$s。请删除其中一份后重试。</string>
     <string name="model_storage_moving_blocked">正在移动模型，请在移动完成后重试。</string>
+    <string name="enhanced_hd_preset">高清 4:3 预设（导出 1440×1080）</string>
+    <string name="enhanced_hd_warning">实际推理尺寸为 1440×1088，可能消耗更多内存。1440×1080 是单独居中裁剪导出，非原生推理尺寸。</string>
+    <string name="enhanced_hd_export">保存 1440×1080（居中裁剪）</string>
 </resources>

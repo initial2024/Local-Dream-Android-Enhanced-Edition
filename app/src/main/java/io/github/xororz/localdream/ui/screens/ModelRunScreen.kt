@@ -164,6 +164,7 @@ import io.github.xororz.localdream.ui.components.ShareParamsFlow
 import io.github.xororz.localdream.ui.components.SmoothLinearWavyProgressIndicator
 import io.github.xororz.localdream.ui.components.ZoomableImageOverlay
 import io.github.xororz.localdream.ui.theme.Motion
+import io.github.xororz.localdream.utils.HighDefinitionOutput
 import io.github.xororz.localdream.utils.ImportedParams
 import io.github.xororz.localdream.utils.LogCapture
 import io.github.xororz.localdream.utils.ParamShare
@@ -2044,6 +2045,14 @@ fun ModelRunScreen(
                                     isDit = model?.isDit == true,
                                     onDitWidthChange = onDitWidthChange,
                                     onDitHeightChange = onDitHeightChange,
+                                    onDitHdPreset = {
+                                        if (!isRunning) {
+                                            currentWidth = 1440
+                                            currentHeight = 1088
+                                            aspectRatio = "4:3"
+                                            saveAllFields()
+                                        }
+                                    },
                                     runOnCpu = model?.runOnCpu ?: false,
                                     useImg2img = useImg2img,
                                     isRunning = isRunning,
@@ -2941,6 +2950,20 @@ fun ModelRunScreen(
                             onReportClick = { showReportDialog = true },
                             onUpscaleClick = { showUpscalerDialog = true },
                             onUltrafixClick = { showUltrafixConfirmDialog = true },
+                            onSaveHdClick = { bitmap ->
+                                // Explicit crop: ordinary Save/history keep native 1440x1088.
+                                val cropped = HighDefinitionOutput.cropTo1440x1080(bitmap)
+                                handleSaveImage(
+                                    context = context,
+                                    bitmap = cropped,
+                                    onSuccess = {
+                                        Toast.makeText(context, msgImageSaved, Toast.LENGTH_SHORT).show()
+                                    },
+                                    onError = { error ->
+                                        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                            },
                             onSaveClick = { bitmap ->
                                 handleSaveImage(
                                     context = context,

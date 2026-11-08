@@ -63,6 +63,7 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -94,6 +95,7 @@ import io.github.xororz.localdream.R
 import io.github.xororz.localdream.data.HistoryFilter
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.ui.theme.Motion
+import io.github.xororz.localdream.utils.HighDefinitionOutput
 
 /** Result tab of the run screen: latest image, quick actions and recent thumbnails. */
 @Composable
@@ -120,6 +122,7 @@ internal fun ModelRunResultPage(
     onUpscaleClick: () -> Unit,
     onUltrafixClick: () -> Unit,
     onSaveClick: (Bitmap) -> Unit,
+    onSaveHdClick: (Bitmap) -> Unit,
     onPreviewClick: () -> Unit,
     onShowParameters: () -> Unit,
     onHistoryThumbClick: (HistoryItem) -> Unit,
@@ -304,6 +307,14 @@ internal fun ModelRunResultPage(
                                         modifier = Modifier.fillMaxSize(),
                                     )
                                 }
+                            }
+                        }
+
+                        if (currentBitmap != null &&
+                            HighDefinitionOutput.isHdCanvas(currentBitmap.width, currentBitmap.height)
+                        ) {
+                            TextButton(onClick = { onSaveHdClick(currentBitmap) }) {
+                                Text(stringResource(R.string.enhanced_hd_export))
                             }
                         }
 

@@ -536,4 +536,7 @@
     <string name="model_storage_name_clash">The Download folder does not tell upper and lower case apart, so these would overwrite another model or embedding: %1$s. Rename or delete them first.</string>
     <string name="model_storage_conflict">%1$s already contains %2$s. Delete one of the copies, then try again.</string>
     <string name="model_storage_moving_blocked">Models are being moved. Try again once the move has finished.</string>
+    <string name="enhanced_hd_preset">HD 4:3 preset (1440×1080 export)</string>
+    <string name="enhanced_hd_warning">Inference uses 1440×1088 and may require much more RAM. 1440×1080 is a separate center-cropped export, not a native diffusion size.</string>
+    <string name="enhanced_hd_export">Save 1440×1080 (center crop)</string>
 </resources>

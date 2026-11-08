@@ -30,12 +30,12 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "io.github.xororz.localdream"
+        applicationId = "io.github.initial2024.localdream.enhanced"
         minSdk = 28
 //        minSdk = 31
         targetSdk = 36
-        versionCode = 74
-        versionName = "3.0.0-alpha.7"
+        versionCode = 1
+        versionName = "0.1.0-alpha.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -118,7 +118,7 @@ androidComponents {
         variant.outputs.forEach { output ->
             val versionName = output.versionName.orNull
             if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
-                output.outputFileName.set("LocalDream_armv8a_$versionName.apk")
+                output.outputFileName.set("LocalDreamEnhanced_arm64_$versionName.apk")
             }
         }
     }
