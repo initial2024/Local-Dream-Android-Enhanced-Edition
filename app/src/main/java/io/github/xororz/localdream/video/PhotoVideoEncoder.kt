@@ -33,9 +33,7 @@ import kotlinx.coroutines.withContext
  * Memory stays bounded: at most two decoded image textures at a time.
  */
 internal object PhotoVideoEncoder {
-    private const val FPS = 24
     private const val MAX_DURATION_SECONDS = 90
-    private const val BITRATE = 3_000_000
 
     suspend fun export(
         context: Context,
@@ -43,6 +41,7 @@ internal object PhotoVideoEncoder {
         destination: Uri,
         portrait: Boolean,
         secondsPerPhoto: Int,
+        highQuality: Boolean = false,
         onProgress: suspend (Int) -> Unit,
     ) = withContext(Dispatchers.IO) {
         val selected = photos.toList()
@@ -53,19 +52,20 @@ internal object PhotoVideoEncoder {
         }
         val width = if (portrait) 720 else 1280
         val height = if (portrait) 1280 else 720
-        val total = PhotoVideoTimeline.totalFrames(selected.size, FPS, secondsPerPhoto)
+        val fps = if (highQuality) 30 else 24
+        val bitrate = if (highQuality) 6_000_000 else 3_000_000
+        val total = PhotoVideoTimeline.totalFrames(selected.size, fps, secondsPerPhoto)
 
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
         }
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         var input: Surface? = null
         var egl: PhotoEglRenderer? = null
         var muxer: MediaMuxer? = null
-        var started = false
         try {
             codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             input = codec.createInputSurface()
@@ -75,29 +75,40 @@ internal object PhotoVideoEncoder {
                 muxer = MediaMuxer(file.fileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
                 val state = TrackState()
                 var displayedPhoto = -1
-                var currentTexture = 0
-                var followingTexture = 0
+                var currentTexture: PhotoEglRenderer.Texture? = null
+                var followingTexture: PhotoEglRenderer.Texture? = null
                 try {
                     for (frame in 0 until total) {
                         coroutineContext.ensureActive()
                         val position = PhotoVideoTimeline.frameAt(
-                            frame, selected.size, FPS, secondsPerPhoto,
+                            frame, selected.size, fps, secondsPerPhoto,
                         )
                         if (position.index != displayedPhoto) {
+                            // Promote the already-decoded next photo instead of
+                            // decoding the same image again at each transition.
+                            val promoted = if (position.index == displayedPhoto + 1) {
+                                followingTexture
+                            } else {
+                                null
+                            }
                             egl.deleteTexture(currentTexture)
-                            egl.deleteTexture(followingTexture)
+                            if (promoted == null) {
+                                egl.deleteTexture(followingTexture)
+                            }
                             displayedPhoto = position.index
-                            currentTexture = egl.loadTexture(decode(context, selected[displayedPhoto]))
+                            currentTexture = promoted
+                                ?: egl.loadTexture(decode(context, selected[displayedPhoto]))
                             followingTexture = if (displayedPhoto + 1 < selected.size) {
                                 egl.loadTexture(decode(context, selected[displayedPhoto + 1]))
                             } else {
-                                0
+                                null
                             }
                         }
-                        egl.render(currentTexture, followingTexture, position.opacity)
-                        egl.present(frame * 1_000_000_000L / FPS)
+                        egl.render(currentTexture ?: error("Missing current photo"),
+                            followingTexture, position.opacity)
+                        egl.present(frame * 1_000_000_000L / fps)
                         drain(codec, muxer!!, state, finish = false)
-                        if (frame % FPS == 0) {
+                        if (frame % fps == 0) {
                             onProgress(frame * 100 / total)
                         }
                     }
@@ -105,7 +116,6 @@ internal object PhotoVideoEncoder {
                     egl.deleteTexture(followingTexture)
                     codec.signalEndOfInputStream()
                     drain(codec, muxer!!, state, finish = true)
-                    started = state.started
                     onProgress(100)
                 } finally {
                     if (state.started) {
@@ -192,6 +202,8 @@ private class PhotoEglRenderer(surface: Surface, private val width: Int, private
     private val vertex: Int
     private val texture: Int
     private val opacity: Int
+
+    data class Texture(val id: Int, val uv: FloatArray)
     private val coordinates = ByteBuffer.allocateDirect(4 * 4 * 4)
         .order(ByteOrder.nativeOrder()).asFloatBuffer()
 
@@ -266,7 +278,7 @@ private class PhotoEglRenderer(surface: Surface, private val width: Int, private
         return shader
     }
 
-    fun loadTexture(bitmap: Bitmap): Int {
+    fun loadTexture(bitmap: Bitmap): Texture {
         try {
             val names = IntArray(1)
             GLES20.glGenTextures(1, names, 0)
@@ -278,33 +290,48 @@ private class PhotoEglRenderer(surface: Surface, private val width: Int, private
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
             GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-            return id
+            // Center-crop UV coordinates keep faces/circles undistorted
+            // while filling the fixed 16:9 or 9:16 output canvas.
+            val frameAspect = width.toFloat() / height
+            val imageAspect = bitmap.width.toFloat() / bitmap.height
+            val cropX = if (imageAspect > frameAspect) {
+                (1f - frameAspect / imageAspect) / 2f
+            } else {
+                0f
+            }
+            val cropY = if (imageAspect < frameAspect) {
+                (1f - imageAspect / frameAspect) / 2f
+            } else {
+                0f
+            }
+            return Texture(
+                id = id,
+                uv = floatArrayOf(
+                    -1f, -1f, cropX, 1f - cropY,
+                    1f, -1f, 1f - cropX, 1f - cropY,
+                    -1f, 1f, cropX, cropY,
+                    1f, 1f, 1f - cropX, cropY,
+                ),
+            )
         } finally {
             bitmap.recycle()
         }
     }
 
-    fun render(current: Int, following: Int, fade: Float) {
+    fun render(current: Texture, following: Texture?, fade: Float) {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         draw(current, 1f)
-        if (following != 0 && fade > 0f) draw(following, fade)
+        if (following != null && fade > 0f) draw(following, fade)
     }
 
-    private fun draw(id: Int, alpha: Float) {
+    private fun draw(textureRef: Texture, alpha: Float) {
         GLES20.glUseProgram(program)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
-        // For slide exports images are already bounded to 1280x1280. The texture
-        // is stretched in this first implementation; exact aspect-preserving
-        // cropping will be addressed in the next verification pass.
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureRef.id)
+        // UVs are computed once at image decode, not on every frame.
         coordinates.clear()
-        coordinates.put(floatArrayOf(
-            -1f, -1f, 0f, 1f,
-            1f, -1f, 1f, 1f,
-            -1f, 1f, 0f, 0f,
-            1f, 1f, 1f, 0f,
-        ))
+        coordinates.put(textureRef.uv)
         coordinates.position(0)
         GLES20.glEnableVertexAttribArray(vertex)
         GLES20.glVertexAttribPointer(vertex, 2, GLES20.GL_FLOAT, false, 16, coordinates)
@@ -320,8 +347,10 @@ private class PhotoEglRenderer(surface: Surface, private val width: Int, private
         check(EGL14.eglSwapBuffers(display, window)) { "Video encoder surface rejected frame" }
     }
 
-    fun deleteTexture(id: Int) {
-        if (id != 0) GLES20.glDeleteTextures(1, intArrayOf(id), 0)
+    fun deleteTexture(textureRef: Texture?) {
+        if (textureRef != null) {
+            GLES20.glDeleteTextures(1, intArrayOf(textureRef.id), 0)
+        }
     }
 
     fun close() {
