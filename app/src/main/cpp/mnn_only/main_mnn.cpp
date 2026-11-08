@@ -166,12 +166,21 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
           input->negative_prompt.size() > 8192) {
         throw std::invalid_argument("Out-of-range generation parameters");
       }
-      // Existing SD 1.5 MNN UI offers 128..512 square.
-      // outputs remain a separate post-process, not claimed as native.
-      if (input->width != input->height || input->width < 128 ||
-          input->width > 512 || (input->width % 64) != 0) {
+      // The MNN UNet and VAE use dynamic input tensor shapes. Permit
+      // experimental higher native pixel counts, but bound both dimensions
+      // and total pixels before allocating accelerator memory. This is *not*
+      // ordinary 512px export scaling: the actual diffusion model operates
+      // on the requested latent canvas. Larger sizes remain device-unverified.
+      constexpr int kMinSide = 128;
+      constexpr int kMaxSide = 1024;
+      constexpr long long kMaxPixels = 1024LL * 1024;
+      if (input->width < kMinSide || input->height < kMinSide ||
+          input->width > kMaxSide || input->height > kMaxSide ||
+          (input->width % 64) != 0 || (input->height % 64) != 0 ||
+          static_cast<long long>(input->width) * input->height > kMaxPixels) {
         throw std::invalid_argument(
-            "SD1.5 MNN native canvas must be square, 128..512 (step 64)");
+            "Experimental SD1.5 MNN canvas requires 128..1024 sides "
+            "aligned to 64 and at most 1048576 native pixels");
       }
       res.set_header("Cache-Control", "no-store");
       res.set_chunked_content_provider(
