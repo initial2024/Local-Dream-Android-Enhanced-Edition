@@ -1,0 +1,194 @@
+name: Fast signed MNN device-test from pinned native artifact
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fast-mnn-signed-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fast-signed-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - name: Checkout original source and enhancement code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Reuse cryptographically pinned successful native arm64 artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The code must be exactly the same native implementation as the
+          # already-successful source build. Fail closed on future source edits.
+          VERIFIED_SOURCE="ccbfcbfc6bf6ada308e088f0e22a86c5c4472fe1"
+          git cat-file -e "$VERIFIED_SOURCE^{commit}"
+          git diff --exit-code "$VERIFIED_SOURCE" HEAD -- \
+            app/src/main/cpp/mnn_only \
+            app/src/main/cpp/src/PipelineSd15Cpu.hpp \
+            enhanced/patch_tokenizers_rust.py \
+            .gitmodules
+          echo "Native source matches previously verified commit $VERIFIED_SOURCE"
+
+          mkdir -p "$RUNNER_TEMP/verified-core"
+          gh run download 42484034793 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name LocalDream-MNN-only-arm64-EXPERIMENTAL-not-an-APK \
+            --dir "$RUNNER_TEMP/verified-core"
+          NATIVE_FROM_CI="$(find "$RUNNER_TEMP/verified-core" -type f -name libstable_diffusion_core.so -print -quit)"
+          test -s "$NATIVE_FROM_CI"
+          printf '%s  %s\n' \
+            '037dd9d7a335263f1ad731d56c4c84921393c77b632d0a4b29133b46f33c647c' \
+            "$NATIVE_FROM_CI" | sha256sum --check --status
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;28.2.13676358" --channel=3
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp "$NATIVE_FROM_CI" app/src/main/jniLibs/arm64-v8a/libstable_diffusion_core.so
+          NATIVE="app/src/main/jniLibs/arm64-v8a/libstable_diffusion_core.so"
+          "$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
+            --strip-unneeded "$NATIVE"
+          test -s "$NATIVE"
+          echo "Pinned source, binary hash and safe symbol stripping checked."
+
+      - name: Gate 1 — real Android native inference core required
+        shell: bash
+        run: |
+          set -euo pipefail
+          NATIVE="app/src/main/jniLibs/arm64-v8a/libstable_diffusion_core.so"
+          if [ ! -s "$NATIVE" ]; then
+            echo "::error::Native inference core missing. Build from appropriately licensed dependencies first."
+            exit 1
+          fi
+          file "$NATIVE"
+          file "$NATIVE" | grep -q 'ELF 64-bit.*ARM aarch64'
+          sha256sum "$NATIVE"
+          "$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"             -d "$NATIVE" > "$RUNNER_TEMP/native-dependencies.txt"
+          echo 'Native dynamic dependency audit:'
+          grep 'NEEDED' "$RUNNER_TEMP/native-dependencies.txt" || true
+          if grep -E 'NEEDED.*(libQnn|libcdsprpc|libdit_engine)'             "$RUNNER_TEMP/native-dependencies.txt"; then
+            echo '::error::MNN-only native core unexpectedly requires Qualcomm runtime'
+            exit 1
+          fi
+
+      - name: Gate 2 — fixed signing secrets must be present
+        shell: bash
+        env:
+          ANDROID_SIGNING_KEY_B64: ${{ secrets.ANDROID_SIGNING_KEY_B64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_SIGNING_KEY_B64"
+          test -n "$ANDROID_STORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          mkdir -p "$HOME/.gradle"
+          umask 077
+          printf '%s' "$ANDROID_SIGNING_KEY_B64" | base64 --decode > "$RUNNER_TEMP/localdream-fixed-release.jks"
+          test -s "$RUNNER_TEMP/localdream-fixed-release.jks"
+          {
+            printf 'RELEASE_STORE_FILE=%s\n' "$RUNNER_TEMP/localdream-fixed-release.jks"
+            printf 'RELEASE_STORE_PASSWORD=%s\n' "$ANDROID_STORE_PASSWORD"
+            printf 'RELEASE_KEY_ALIAS=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'RELEASE_KEY_PASSWORD=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > "$HOME/.gradle/gradle.properties"
+          chmod 600 "$HOME/.gradle/gradle.properties"
+
+      - name: Setup JDK 17 and pinned Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Setup Android SDK 37.0 preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0" --channel=3
+          test -f "$ANDROID_HOME/platforms/android-37.0/android.jar"
+
+      - name: Compile, test, shrink and sign basicRelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 enhanced/apply_overlay.py --check
+          gradle --no-daemon :app:testBasicDebugUnitTest :app:assembleBasicRelease
+
+      - name: Gate 3 — verify package, native ABI, variant and fixed cert
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/basic/release -name '*.apk' -type f | head -n1)"
+          test -n "$APK"
+          test -s "$APK"
+          test "$(find app/build/outputs/apk/basic/release -name '*.apk' -type f | wc -l)" -eq 1
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='io.github.initial2024.localdream.enhanced'"
+          unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-entries.txt"
+          grep -Fxq 'lib/arm64-v8a/libstable_diffusion_core.so' "$RUNNER_TEMP/apk-entries.txt"
+          if grep -E '^lib/arm64-v8a/libQnn' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo '::error::MNN-only APK packages unused Qualcomm QNN libraries'
+            exit 1
+          fi
+          if grep -Fq 'libc++_shared.so' "$RUNNER_TEMP/native-dependencies.txt" &&
+              ! grep -Fxq 'lib/arm64-v8a/libc++_shared.so' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo '::error::Native C++ runtime dependency is missing from APK'
+            exit 1
+          fi
+          if grep -q 'safety_checker.mnn' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo "::error::The basic flavor unexpectedly contains filter weights."
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK" | tee "$RUNNER_TEMP/cert-report.txt"
+          ACTUAL="$(awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print toupper($2)}' "$RUNNER_TEMP/cert-report.txt")"
+          EXPECTED='C903B3F6BDFA62E2BCB0E7F30534BB626FBA2715B35D6BF7BF80C768A8B103AA'
+          test -n "$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Wrong signing certificate; distribution is forbidden."
+            exit 1
+          fi
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Upload verified signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalDreamEnhanced-basicRelease-signed-DEVICE-UNVERIFIED
+          path: ${{ env.APK }}
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Erase runner copy of private signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$HOME/.gradle/gradle.properties" "$RUNNER_TEMP/localdream-fixed-release.jks"
