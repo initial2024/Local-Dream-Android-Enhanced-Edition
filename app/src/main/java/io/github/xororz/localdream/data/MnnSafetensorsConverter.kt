@@ -26,10 +26,11 @@ object MnnSafetensorsConverter {
         uri: Uri,
         requestedName: String,
         clipSkip: Int,
-        onProgress: suspend (String) -> Unit = {},
-        // Only the foreground checkpoint installer can call with an existing
-        // ModelStorage reservation. Manual imports always reserve themselves.
+        // Only the foreground checkpoint installer can pass an existing
+        // reservation and move its own SHA256-verified temp download.
         reservationHeld: Boolean = false,
+        moveVerifiedCheckpoint: Boolean = false,
+        onProgress: suspend (String) -> Unit = {},
     ): String = withContext(Dispatchers.IO) {
         if (clipSkip != 1 && clipSkip != 2) {
             throw IOException("Unsupported CLIP skip mode")
@@ -52,8 +53,25 @@ object MnnSafetensorsConverter {
             val sourceSize = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use {
                 it.length
             } ?: -1L
-            val required = MnnCheckpointPolicy.requiredFreeBytes(sourceSize)
+            val standardRequired = MnnCheckpointPolicy.requiredFreeBytes(sourceSize)
                 ?: throw IOException("Only a complete SD1.5 checkpoint from 100 MiB to 6 GiB is accepted")
+            val ownedInput = if (moveVerifiedCheckpoint && reservationHeld && uri.scheme == "file") {
+                val inputFile = File(uri.path ?: throw IOException("Checkpoint path missing")).canonicalFile
+                val downloadDir = ModelStorage.tempDownloadsDir(context).canonicalFile
+                if (inputFile.parentFile != downloadDir || !inputFile.isFile ||
+                    !inputFile.name.endsWith(".tmp")
+                ) {
+                    throw IOException("Refusing to move a file outside the app's temporary download folder")
+                }
+                inputFile
+            } else if (moveVerifiedCheckpoint) {
+                throw IOException("Only a leased verified application download can be moved")
+            } else null
+            // The downloaded checkpoint already occupies storage. Moving it
+            // into staging avoids a second 2 GiB copy and its extra I/O cost.
+            val required = if (ownedInput != null) {
+                sourceSize * 2 + MnnCheckpointPolicy.MIN_FREE_AFTER_COPY
+            } else standardRequired
             val root = Model.getModelsDir(context)
             if (!root.isDirectory && !root.mkdirs()) {
                 throw IOException("Selected model storage directory is inaccessible")
@@ -71,31 +89,38 @@ object MnnSafetensorsConverter {
             }
             val work = staging
 
-            onProgress("Copying checkpoint and conversion templates")
-            val source = context.contentResolver.openInputStream(uri)
-                ?: throw IOException("Cannot open checkpoint")
-            val buffer = ByteArray(128 * 1024)
-            var total = 0L
-            source.use { input ->
-                File(work, "model.safetensors").outputStream().use { output ->
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        if (n == 0) continue
-                        total += n
-                        if (total > MnnCheckpointPolicy.MAX_BYTES ||
-                            work.usableSpace < MnnCheckpointPolicy.MIN_FREE_AFTER_COPY
-                        ) {
-                            throw IOException("Checkpoint exceeds size or free-space guard")
+            onProgress("Preparing checkpoint and conversion templates")
+            val stagedCheckpoint = File(work, "model.safetensors")
+            if (ownedInput != null) {
+                if (ownedInput.length() != sourceSize || !ownedInput.renameTo(stagedCheckpoint)) {
+                    throw IOException("Verified checkpoint could not be moved to conversion staging")
+                }
+            } else {
+                val source = context.contentResolver.openInputStream(uri)
+                    ?: throw IOException("Cannot open checkpoint")
+                val buffer = ByteArray(128 * 1024)
+                var total = 0L
+                source.use { input ->
+                    stagedCheckpoint.outputStream().use { output ->
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            if (n == 0) continue
+                            total += n
+                            if (total > MnnCheckpointPolicy.MAX_BYTES ||
+                                work.usableSpace < MnnCheckpointPolicy.MIN_FREE_AFTER_COPY
+                            ) {
+                                throw IOException("Checkpoint exceeds size or free-space guard")
+                            }
+                            output.write(buffer, 0, n)
                         }
-                        output.write(buffer, 0, n)
                     }
                 }
+                if (!MnnCheckpointPolicy.acceptableSourceSize(total) ||
+                    total != sourceSize
+                ) throw IOException("Truncated or incompatible source checkpoint")
             }
-            if (!MnnCheckpointPolicy.acceptableSourceSize(total) ||
-                total != sourceSize
-            ) throw IOException("Truncated or incompatible source checkpoint")
 
             // Exactly the pinned original Local Dream MNN conversion templates.
             // Untrusted model packages are not allowed to supply their own
