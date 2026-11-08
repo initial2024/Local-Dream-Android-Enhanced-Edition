@@ -34,7 +34,6 @@ def create_new(relative: str, source: str):
 
 def patch():
     gradle = "app/build.gradle.kts"
-    replace_once(gradle, 'compileSdk = 37', 'compileSdk = 36')
     replace_once(gradle, 'applicationId = "io.github.xororz.localdream"',
                  'applicationId = "io.github.initial2024.localdream.enhanced"')
     replace_once(gradle, 'versionCode = 74\n        versionName = "3.0.0-alpha.7"',
