@@ -96,6 +96,13 @@ jobs:
           file "$NATIVE"
           file "$NATIVE" | grep -q 'ELF 64-bit.*ARM aarch64'
           sha256sum "$NATIVE"
+          "$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"             -d "$NATIVE" > "$RUNNER_TEMP/native-dependencies.txt"
+          echo 'Native dynamic dependency audit:'
+          grep 'NEEDED' "$RUNNER_TEMP/native-dependencies.txt" || true
+          if grep -E 'NEEDED.*(libQnn|libcdsprpc|libdit_engine)'             "$RUNNER_TEMP/native-dependencies.txt"; then
+            echo '::error::MNN-only native core unexpectedly requires Qualcomm runtime'
+            exit 1
+          fi
 
       - name: Gate 2 — fixed signing secrets must be present
         shell: bash
@@ -165,6 +172,15 @@ jobs:
           "$AAPT" dump badging "$APK" | grep -F "package: name='io.github.initial2024.localdream.enhanced'"
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-entries.txt"
           grep -Fxq 'lib/arm64-v8a/libstable_diffusion_core.so' "$RUNNER_TEMP/apk-entries.txt"
+          if grep -E '^lib/arm64-v8a/libQnn' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo '::error::MNN-only APK packages unused Qualcomm QNN libraries'
+            exit 1
+          fi
+          if grep -Fq 'libc++_shared.so' "$RUNNER_TEMP/native-dependencies.txt" &&
+              ! grep -Fxq 'lib/arm64-v8a/libc++_shared.so' "$RUNNER_TEMP/apk-entries.txt"; then
+            echo '::error::Native C++ runtime dependency is missing from APK'
+            exit 1
+          fi
           if grep -q 'safety_checker.mnn' "$RUNNER_TEMP/apk-entries.txt"; then
             echo "::error::The basic flavor unexpectedly contains filter weights."
             exit 1
