@@ -532,4 +532,11 @@
     <string name="enhanced_mnn_cpu_threads">MNN CPU 线程：%1$d（重启模型后生效）</string>
     <string name="enhanced_mnn_native_hd_title">AI 原生生成像素（实验性）</string>
     <string name="enhanced_mnn_native_hd_warning">512×512 为 SD1.5 标准画布。更大尺寸将真正参与模型推理，不是仅放大导出图片。但 768/1024 会显著增加内存和耗时，可能改变构图或因 Mali 驱动兼容性失败。先测试 640，再测试 768，最后再尝试 1024。单独的 1440×1080 导出仍是缩放/裁剪，除非明确使用已验证的 AI 超分模型。</string>
+    <string name="enhanced_switch_mnn_model_hint">点击切换已安装的 MNN 模型</string>
+    <string name="enhanced_manage_mnn_models">管理／下载模型</string>
+    <string name="enhanced_import_mnn_zip">导入兼容的 SD1.5 MNN ZIP</string>
+    <string name="enhanced_import_mnn_zip_hint">仅支持已转换好的 Local Dream MNN 模型包（CLIP、UNet、VAE、Tokenizer 和 Embedding）；不支持直接转换 .safetensors、SDXL、FLUX 或高通 QNN 权重。不会覆盖已有模型文件。</string>
+    <string name="enhanced_mnn_imported_bytes">导入中：已解压 %1$d MiB</string>
+    <string name="enhanced_mnn_zip_import_success">MNN 模型 %1$s 导入成功，可在列表选择</string>
+    <string name="enhanced_mnn_zip_import_failure">导入被拒绝：%1$s</string>
 </resources>
