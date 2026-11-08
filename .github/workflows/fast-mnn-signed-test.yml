@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/fast-mnn-signed-test.yml'
+      - 'app/src/main/java/**'
+      - 'app/src/main/res/**'
+      - 'app/build.gradle.kts'
   workflow_dispatch:
 
 permissions:
