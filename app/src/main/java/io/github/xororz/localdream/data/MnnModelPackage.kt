@@ -13,10 +13,13 @@ object MnnModelPackage {
         "clip_v2.mnn",
         "unet.mnn",
         "vae_decoder.mnn",
+        "vae_encoder.mnn",
         "pos_emb.bin",
         "token_emb.bin",
     )
-    val optionalFiles: Set<String> = setOf("vae_encoder.mnn", "config.json")
+    // Require VAE encoder because the existing UI enables img2img by default.
+    // An incompatible txt2img-only package must never appear as fully usable.
+    val optionalFiles: Set<String> = setOf("config.json")
     val allowedFiles: Set<String> = requiredFiles + optionalFiles
 
     const val MAX_FILES = 40
