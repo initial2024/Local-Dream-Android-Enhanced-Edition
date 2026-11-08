@@ -703,7 +703,37 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
             onModelAdded = { modelName, fileUri, clipSkip, loraFiles ->
                 showCustomModelDialog = false
                 scope.launch {
-                    convertCustomModel(
+                    if (BuildConfig.MNN_ONLY_NATIVE) {
+                        if (loraFiles.isNotEmpty()) {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.enhanced_merge_lora_before_import),
+                            )
+                        } else {
+                            isConverting = true
+                            try {
+                                MnnSafetensorsConverter.convert(
+                                    context, fileUri, modelName, clipSkip,
+                                ) { progress ->
+                                    withContext(Dispatchers.Main) {
+                                        conversionProgress = progress
+                                    }
+                                }
+                                modelRepository.refreshAllModels()
+                                snackbarHostState.showSnackbar(msgModelConversionSuccess)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                Log.e("MnnConvert", "Conversion rejected", e)
+                                snackbarHostState.showSnackbar(
+                                    msgModelConversionFailed.format(
+                                        e.message ?: e.javaClass.simpleName,
+                                    ),
+                                )
+                            } finally {
+                                isConverting = false
+                            }
+                        }
+                    } else convertCustomModel(
                         context = context,
                         modelName = modelName,
                         fileUri = fileUri,
@@ -1098,6 +1128,20 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                         item {
                             if (BuildConfig.MNN_ONLY_NATIVE) {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { showCustomModelDialog = true },
+                                        enabled = !isConverting && !mnnZipImporting,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(stringResource(R.string.enhanced_convert_sd15_safetensors))
+                                    }
+                                    Text(
+                                        stringResource(R.string.enhanced_convert_sd15_warning),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                     OutlinedButton(
                                         onClick = {
                                             mnnZipImporter.launch(
