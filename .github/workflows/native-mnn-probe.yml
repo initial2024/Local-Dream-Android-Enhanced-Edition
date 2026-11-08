@@ -8,6 +8,11 @@ on:
       - 'enhanced/patch_tokenizers_rust.py'
       - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
       - '.github/workflows/native-mnn-probe.yml'
+  pull_request:
+    paths:
+      - 'app/src/main/cpp/mnn_only/**'
+      - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
+      - '.github/workflows/native-mnn-probe.yml'
   workflow_dispatch:
 
 permissions:

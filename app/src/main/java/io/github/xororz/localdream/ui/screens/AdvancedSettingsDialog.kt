@@ -65,6 +65,8 @@ internal fun AdvancedSettingsDialog(
     steps: Float,
     cfg: Float,
     useOpenCL: Boolean,
+    showMnnCpuThreads: Boolean = false,
+    cpuThreads: Int = 4,
     batchCounts: Int,
     denoiseStrength: Float,
     seed: String,
@@ -81,6 +83,7 @@ internal fun AdvancedSettingsDialog(
     onSizeChange: (Float) -> Unit,
     onCpuSelected: () -> Unit,
     onGpuSelected: () -> Unit,
+    onCpuThreadsChange: (Int) -> Unit = {},
     onBatchCountsChange: (Float) -> Unit,
     onDenoiseStrengthChange: (Float) -> Unit,
     onSeedChange: (String) -> Unit,
@@ -420,6 +423,22 @@ internal fun AdvancedSettingsDialog(
                         ) {
                             Text("GPU")
                         }
+                    }
+                }
+                if (showMnnCpuThreads && runOnCpu && !useOpenCL) {
+                    Column {
+                        Text(
+                            stringResource(R.string.enhanced_mnn_cpu_threads, cpuThreads),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Slider(
+                            value = cpuThreads.toFloat(),
+                            onValueChange = { onCpuThreadsChange(it.roundToInt()) },
+                            valueRange = 1f..8f,
+                            steps = 6,
+                            enabled = !isRunning,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
                 Column {

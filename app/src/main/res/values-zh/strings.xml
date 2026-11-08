@@ -529,4 +529,5 @@
     <string name="enhanced_hd_warning">实际推理尺寸为 1440×1088，可能消耗更多内存。1440×1080 是单独居中裁剪导出，非原生推理尺寸。</string>
     <string name="enhanced_hd_export">导出 1440×1080（缩放／居中裁剪）</string>
     <string name="enhanced_reproduce_limit">仅恢复已记录的参数。原始输入图、蒙版、模型校验值及引擎版本未完整保存，因此不保证生成结果逐像素一致。</string>
+    <string name="enhanced_mnn_cpu_threads">MNN CPU 线程：%1$d（重启模型后生效）</string>
 </resources>

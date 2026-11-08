@@ -144,6 +144,7 @@ import io.github.xororz.localdream.data.HistoryFilter
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
 import io.github.xororz.localdream.data.ModelRepository
+import io.github.xororz.localdream.data.MnnCpuThreads
 import io.github.xororz.localdream.data.ModelStorage
 import io.github.xororz.localdream.data.PatchScanner
 import io.github.xororz.localdream.data.RemoteRepository
@@ -437,6 +438,15 @@ fun ModelRunScreen(
     var isPreviewMode by remember { mutableStateOf(false) }
     val preferences = remember {
         context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    }
+    // Persist per-install CPU tuning. The backend process reconciles and
+    // restarts if the configured thread count changes when started again.
+    var mnnCpuThreads by remember {
+        mutableIntStateOf(
+            MnnCpuThreads.validated(
+                preferences.getInt(MnnCpuThreads.PREF_KEY, MnnCpuThreads.DEFAULT),
+            ),
+        )
     }
     // Both settings can only change on the model list screen, so a snapshot
     // taken once per screen entry is enough; re-reading on every recomposition
@@ -2086,6 +2096,8 @@ fun ModelRunScreen(
                                     steps = steps,
                                     cfg = cfg,
                                     useOpenCL = useOpenCL,
+                                    showMnnCpuThreads = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
+                                    cpuThreads = mnnCpuThreads,
                                     batchCounts = batchCounts,
                                     denoiseStrength = denoiseStrength,
                                     seed = seed,
@@ -2125,6 +2137,15 @@ fun ModelRunScreen(
                                         saveAllFields()
                                     },
                                     onGpuSelected = { showOpenCLWarningDialog = true },
+                                    onCpuThreadsChange = { requested ->
+                                        if (!isRunning) {
+                                            mnnCpuThreads = MnnCpuThreads.validated(requested)
+                                            preferences.edit().putInt(
+                                                MnnCpuThreads.PREF_KEY,
+                                                mnnCpuThreads,
+                                            ).apply()
+                                        }
+                                    },
                                     onBatchCountsChange = onBatchCountsChange,
                                     onDenoiseStrengthChange = onDenoiseStrengthChange,
                                     onSeedChange = onSeedChange,

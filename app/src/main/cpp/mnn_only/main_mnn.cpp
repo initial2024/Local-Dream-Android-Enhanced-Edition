@@ -6,6 +6,7 @@
 // Qualcomm-specific NPU/DiT, SDXL or model conversion.
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -32,6 +33,7 @@ struct Options {
   std::string type;
   std::string model_dir;
   int port = 8081;
+  int cpu_threads = 4;  // configurable; OpenCL kernels do not use this
   bool disable_img2img = false;
   bool use_v_pred = false;
 };
@@ -52,6 +54,8 @@ Options parseArgs(int argc, char **argv) {
       opts.model_dir = value();
     } else if (flag == "--port") {
       opts.port = std::stoi(value());
+    } else if (flag == "--cpu_threads") {
+      opts.cpu_threads = std::stoi(value());
     } else if (flag == "--no_img2img") {
       opts.disable_img2img = true;
     } else if (flag == "--use_v_pred") {
@@ -59,7 +63,7 @@ Options parseArgs(int argc, char **argv) {
     } else if (flag == "--help") {
       std::cout << "LocalDream MNN-only SD1.5 runtime\n"
                    "--type sd15cpu --model_dir DIR [--port 8081]"
-                   " [--no_img2img] [--use_v_pred]\n";
+                   " [--no_img2img] [--use_v_pred] [--cpu_threads 1..8]\n";
       std::exit(EXIT_SUCCESS);
     } else if (flag == "--version") {
       std::cout << "LocalDream enhanced MNN-only experimental v1\n";
@@ -84,6 +88,8 @@ Options parseArgs(int argc, char **argv) {
   if (opts.port < 1024 || opts.port > 65535) {
     throw std::invalid_argument("Invalid local HTTP port");
   }
+  if (opts.cpu_threads < 1 || opts.cpu_threads > 8)
+    throw std::invalid_argument("--cpu_threads must be in 1..8");
   if (opts.model_dir.empty()) throw std::invalid_argument("Missing --model_dir");
   return opts;
 }
@@ -115,7 +121,7 @@ std::unique_ptr<Pipeline> createPipeline(const Options &opts,
   }
   return std::make_unique<PipelineSd15Cpu>(
       encoder, opts.model_dir, clip, unet, vae_decoder, vae_encoder,
-      opts.use_v_pred);
+      opts.use_v_pred, opts.cpu_threads);
 }
 
 std::string encodeImage(const GenerationResult &result,
@@ -152,7 +158,15 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
           parseGenerationRequest(body, false, false,
                                  pipeline.supportsImg2Img(),
                                  false, pipeline.supportsUltrafix()));
-      // Existing SD 1.5 MNN UI offers 128..512 square. High-resolution
+      // Reject malformed work before allocating GPU/CPU tensors. Preserve
+      // the upstream UI's 1..50-step boundary and disallow NaN/infinity.
+      if (input->steps < 1 || input->steps > 50 ||
+          !std::isfinite(input->cfg) || input->cfg < 0.0f ||
+          input->cfg > 30.0f || input->prompt.size() > 8192 ||
+          input->negative_prompt.size() > 8192) {
+        throw std::invalid_argument("Out-of-range generation parameters");
+      }
+      // Existing SD 1.5 MNN UI offers 128..512 square.
       // outputs remain a separate post-process, not claimed as native.
       if (input->width != input->height || input->width < 128 ||
           input->width > 512 || (input->width % 64) != 0) {
