@@ -898,7 +898,15 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                 onDismissRequest = { showDownloadConfirm = null },
                 title = { Text(stringResource(R.string.download_model)) },
                 text = {
-                    Text(stringResource(R.string.download_model_hint, model.name))
+                    Text(
+                        if (BuildConfig.MNN_ONLY_NATIVE &&
+                            MnnModelSuggestions.options.any { it.modelId == model.id }
+                        ) {
+                            stringResource(R.string.enhanced_one_tap_sd15_confirm, model.name)
+                        } else {
+                            stringResource(R.string.download_model_hint, model.name)
+                        },
+                    )
                 },
                 confirmButton = {
                     TextButton(
@@ -1157,9 +1165,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                     Text(
-                                        "DreamShaper 8 and Realistic Vision V6 appear alongside the original five models. " +
-                                            "Tap Download to verify SHA256 and convert offline to MNN. " +
-                                            "Experimental: allow about 7 GiB free storage; model licenses still apply.",
+                                        stringResource(R.string.enhanced_one_tap_sd15_note),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
