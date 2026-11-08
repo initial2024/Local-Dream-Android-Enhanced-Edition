@@ -67,7 +67,7 @@ object TempCleaner {
         }
         val moveActive = ModelStorage.moveState.value is ModelStorage.MoveState.Moving ||
             ModelStorage.pendingMove(context) != null
-        if (!downloadActive && !moveActive) {
+        if (!downloadActive && !moveActive && !ModelStorage.isBusy()) {
             ModelStorage.tempDownloadsDir(context).takeIf { it.exists() }?.let { targets += it }
 
             // Unrecognized leftovers under models/ (stray files, half-extracted
