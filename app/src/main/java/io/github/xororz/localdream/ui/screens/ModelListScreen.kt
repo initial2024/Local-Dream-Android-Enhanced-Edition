@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavController
+import io.github.xororz.localdream.BuildConfig
 import io.github.xororz.localdream.R
 import io.github.xororz.localdream.data.*
 import io.github.xororz.localdream.data.DarkModePreference
@@ -311,7 +312,42 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
     val remoteActive = remoteRepository.isActive
 
     var showHelpDialog by remember { mutableStateOf(false) }
+    var mnnZipImporting by remember { mutableStateOf(false) }
+    var mnnZipImportBytes by remember { mutableLongStateOf(0L) }
+    val mnnZipImporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null && BuildConfig.MNN_ONLY_NATIVE && !mnnZipImporting) {
+            mnnZipImporting = true
+            mnnZipImportBytes = 0L
+            scope.launch {
+                try {
+                    val importedId = MnnModelImporter.import(context, uri) { bytes ->
+                        withContext(Dispatchers.Main) { mnnZipImportBytes = bytes }
+                    }
+                    modelRepository.refreshAllModels()
+                    snackbarHostState.showSnackbar(
+                        context.getString(R.string.enhanced_mnn_zip_import_success, importedId),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("MnnModelImport", "Import rejected", e)
+                    snackbarHostState.showSnackbar(
+                        context.getString(
+                            R.string.enhanced_mnn_zip_import_failure,
+                            e.message ?: e.javaClass.simpleName,
+                        ),
+                    )
+                } finally {
+                    mnnZipImporting = false
+                }
+            }
+        }
+    }
 
+    // The old upstream onboarding modal is not appropriate for the enhanced
+    // MNN-only edition. Help remains available explicitly in the overflow menu.
     val isFirstLaunch = remember {
         context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
             .getBoolean("is_first_launch", true)
@@ -370,9 +406,11 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
 
     LaunchedEffect(Unit) {
         if (isFirstLaunch) {
-            showHelpDialog = true
-            // Written here instead of inside remember: composition may be
-            // discarded, effects only run once it is committed.
+            if (!BuildConfig.MNN_ONLY_NATIVE) {
+                // Preserve upstream onboarding in its original full edition.
+                showHelpDialog = true
+            }
+            // Enhanced app never interrupts first use with the legacy modal.
             context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                 .edit { putBoolean("is_first_launch", false) }
         }
@@ -380,12 +418,15 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
             currentBaseUrl = generationPreferences.getBaseUrl()
             selectedSource = generationPreferences.getSelectedSource()
         }
-        modelRepository.ensureLoaded()
-        // Re-establish a saved device link and pull a fresh catalog; on
-        // failure the offline banner offers a retry.
-        remoteRepository.restore()
-        if (remoteRepository.isActive) {
-            remoteRepository.refresh()
+        // Keep the first screen responsive: local package discovery and
+        // optional connected-host restore are independent I/O jobs. Neither
+        // should serialize and block the other during first composition.
+        launch { modelRepository.ensureLoaded() }
+        launch {
+            remoteRepository.restore()
+            if (remoteRepository.isActive) {
+                remoteRepository.refresh()
+            }
         }
     }
 
@@ -1055,10 +1096,43 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                 ) {
                     if (page == 0 && !remoteActive) {
                         item {
-                            AddCustomModelButton(
-                                onClick = { showCustomModelDialog = true },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                            if (BuildConfig.MNN_ONLY_NATIVE) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            mnnZipImporter.launch(
+                                                arrayOf("application/zip", "application/octet-stream", "*/*"),
+                                            )
+                                        },
+                                        enabled = !mnnZipImporting,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(stringResource(R.string.enhanced_import_mnn_zip))
+                                    }
+                                    if (mnnZipImporting) {
+                                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                        Text(
+                                            stringResource(
+                                                R.string.enhanced_mnn_imported_bytes,
+                                                mnnZipImportBytes / (1024 * 1024),
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                    Text(
+                                        stringResource(R.string.enhanced_import_mnn_zip_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            } else {
+                                AddCustomModelButton(
+                                    onClick = { showCustomModelDialog = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
 

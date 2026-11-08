@@ -12,6 +12,8 @@ import io.github.xororz.localdream.data.DitEngine
 import io.github.xororz.localdream.data.DitResolution
 import io.github.xororz.localdream.data.Model
 import io.github.xororz.localdream.data.MnnCpuThreads
+import io.github.xororz.localdream.data.MnnProcessReuse
+import io.github.xororz.localdream.data.MnnProcessSignature
 import io.github.xororz.localdream.data.ModelStorage
 import java.io.File
 import java.io.IOException
@@ -321,8 +323,23 @@ class BackendService : Service() {
             return
         }
         val alreadyServing = process?.isAlive == true && serving == want
-        if (alreadyServing && !forceRestart) {
-            Log.i(TAG, "backend already serving ${want.modelId} ${want.width}x${want.height}")
+        val mnnResizeSafe = MnnProcessReuse.canKeepProcess(
+            mnnOnlyBuild = BuildConfig.MNN_ONLY_NATIVE,
+            processAlive = process?.isAlive == true,
+            forceRestart = forceRestart,
+            current = serving?.let {
+                MnnProcessSignature(it.modelId, it.backendType, it.cpuThreads, it.listenOnAll)
+            },
+            requested = MnnProcessSignature(
+                want.modelId, want.backendType, want.cpuThreads, want.listenOnAll,
+            ),
+        )
+        if (!forceRestart && (alreadyServing || mnnResizeSafe)) {
+            // SD1.5 MNN accepts requested width/height for every generation.
+            // Reusing this same live process keeps the tokenizer and embedding
+            // tables ready instead of forcing a cold reload on a size change.
+            Log.i(TAG, "reusing native backend ${want.modelId} ${want.width}x${want.height}")
+            serving = want
             updateServing(want)
             updateState(BackendState.Running)
             return

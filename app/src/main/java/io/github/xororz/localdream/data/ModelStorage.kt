@@ -98,6 +98,9 @@ object ModelStorage {
     // and BackendService publishes its Starting state through [unlessMoving].
     private val gate = Any()
     private var moving = false
+    // In-app SD1.5 MNN model imports and model-storage migrations must never
+    // overlap. Protected by the same gate as the native backend's start.
+    private var importingMnnModel = false
 
     @Volatile private var cached: Location? = null
 
@@ -225,7 +228,8 @@ object ModelStorage {
     fun isBusy(): Boolean {
         val download = ModelDownloadService.downloadState.value
         val backend = BackendService.backendState.value
-        return download is ModelDownloadService.DownloadState.Downloading ||
+        return importingMnnModel ||
+            download is ModelDownloadService.DownloadState.Downloading ||
             download is ModelDownloadService.DownloadState.Extracting ||
             backend is BackendService.BackendState.Starting ||
             backend is BackendService.BackendState.Running
@@ -236,7 +240,20 @@ object ModelStorage {
      * are. [block] must publish the state [isBusy] looks at, so a move that
      * starts afterwards sees it.
      */
-    fun <T> unlessMoving(block: () -> T): T? = synchronized(gate) { if (moving) null else block() }
+    fun <T> unlessMoving(block: () -> T): T? = synchronized(gate) {
+        if (moving || importingMnnModel) null else block()
+    }
+
+    /** Reserve the model directory for one non-destructive MNN package import. */
+    fun beginMnnImport(): Boolean = synchronized(gate) {
+        if (moving || importingMnnModel || isBusy()) return@synchronized false
+        importingMnnModel = true
+        true
+    }
+
+    fun endMnnImport() = synchronized(gate) {
+        importingMnnModel = false
+    }
 
     /**
      * Moves every model and embedding to [to] in the background, then switches

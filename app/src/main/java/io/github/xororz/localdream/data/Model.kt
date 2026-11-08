@@ -546,7 +546,15 @@ class ModelRepository private constructor(private val context: Context) {
 
     suspend fun ensureLoaded() {
         if (isLoaded) return
-        refreshAllModels()
+        // Multiple screens can request initial loading before the first
+        // asynchronous disk scan finishes. Recheck after acquiring the lock
+        // to avoid repeatedly scanning every 1GB+ model package at startup.
+        refreshMutex.withLock {
+            if (isLoaded) return
+            baseUrl = generationPreferences.getBaseUrl()
+            models = withContext(Dispatchers.IO) { initializeModels() }
+            isLoaded = true
+        }
     }
 
     private fun scanCustomModels(): List<Model> {
@@ -558,6 +566,10 @@ class ModelRepository private constructor(private val context: Context) {
                 if (!dir.isDirectory) return@forEach
 
                 val modelId = dir.name
+                // An interrupted ZIP import intentionally leaves a hidden
+                // staging directory. Never display it as an installed model
+                // or parse its partially written files.
+                if (modelId.startsWith(".")) return@forEach
                 if (modelId in RESERVED_MODEL_IDS) {
                     Log.w(
                         "ModelRepository",
@@ -584,8 +596,7 @@ class ModelRepository private constructor(private val context: Context) {
                         // their downloaded weights.
                         if (finishedFile.exists() && !sdxlFile.exists() &&
                             !animaFile.exists() && !npuCustomFile.exists() &&
-                            File(dir, "unet.mnn").isFile &&
-                            File(dir, "clip_v2.mnn").isFile
+                            MnnModelPackage.requiredFiles.all { File(dir, it).isFile }
                         ) {
                             customModels.add(createCustomModel(dir, isNpu = false))
                         } else {
