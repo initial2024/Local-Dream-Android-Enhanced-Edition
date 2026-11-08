@@ -107,6 +107,7 @@ android {
         create("filter") {
             dimension = "version"
             versionNameSuffix = "_with_filter"
+            buildConfigField("boolean", "MNN_ONLY_NATIVE", "false")
         }
     }
 }
