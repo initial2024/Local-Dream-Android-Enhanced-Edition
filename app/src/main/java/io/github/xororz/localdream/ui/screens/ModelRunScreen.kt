@@ -2105,7 +2105,7 @@ fun ModelRunScreen(
                                     useOpenCL = useOpenCL,
                                     showMnnCpuThreads = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
                                     showMnnNativeHd = BuildConfig.MNN_ONLY_NATIVE && !isRemote &&
-                                        model?.runOnCpu == true && model.usesFixedCanvas.not(),
+                                        model?.runOnCpu == true && model?.usesFixedCanvas != true,
                                     cpuThreads = mnnCpuThreads,
                                     batchCounts = batchCounts,
                                     denoiseStrength = denoiseStrength,
