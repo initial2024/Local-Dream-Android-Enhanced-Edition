@@ -108,10 +108,11 @@ object MnnSafetensorsConverter {
             if (!executable.isFile) throw IOException("Local MNN converter binary is missing")
             onProgress("Converting offline (can need several GiB RAM and several minutes)")
             val start = SystemClock.elapsedRealtime()
-            process = ProcessBuilder(
+            val command = mutableListOf(
                 executable.absolutePath, "--convert", work.absolutePath,
-                *if (clipSkip == 2) arrayOf("--clip_skip_2") else emptyArray(),
-            ).apply {
+            )
+            if (clipSkip == 2) command += "--clip_skip_2"
+            process = ProcessBuilder(command).apply {
                 redirectErrorStream(true)
                 environment()["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir +
                     ":/system/lib64:/vendor/lib64"
@@ -161,7 +162,9 @@ object MnnSafetensorsConverter {
             staging = null
             Log.i("MnnConvert", "Offline conversion finished in " +
                 (SystemClock.elapsedRealtime() - start) + " ms")
-            onProgress("Model ready to select: $modelId")
+            // A UI notification failure must not roll back a successful
+            // atomic import or misleadingly report a missing model.
+            runCatching { onProgress("Model ready to select: $modelId") }
             modelId
         } finally {
             if (process?.isAlive == true) {
