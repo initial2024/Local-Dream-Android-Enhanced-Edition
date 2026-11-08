@@ -144,6 +144,13 @@ class PipelineSd15Cpu : public Pipeline {
     if (req.use_opencl) unet_interpreter_->updateCacheFile(unet_session_);
 
     unet_interpreter_->releaseModel();
+
+    // MNN host-side staging tensors are the same shapes for every diffusion
+    // step in one run. Allocate once after resize, not three new/delete pairs
+    // on every UNet invocation. This changes no numerical operations.
+    unet_sample_host_ = std::make_unique<MNN::Tensor>(samp, MNN::Tensor::CAFFE);
+    unet_timestep_host_ = std::make_unique<MNN::Tensor>(ts, MNN::Tensor::CAFFE);
+    unet_encoder_host_ = std::make_unique<MNN::Tensor>(enc, MNN::Tensor::CAFFE);
   }
 
   void runUnetStep(const GenerationRequest &req, const float *latents_batch2,
@@ -155,9 +162,9 @@ class PipelineSd15Cpu : public Pipeline {
     auto enc = unet_interpreter_->getSessionInput(unet_session_,
                                                   "encoder_hidden_states");
 
-    auto samp_nchw_tensor = new MNN::Tensor(samp, MNN::Tensor::CAFFE);
-    auto ts_nchw_tensor = new MNN::Tensor(ts, MNN::Tensor::CAFFE);
-    auto enc_nchw_tensor = new MNN::Tensor(enc, MNN::Tensor::CAFFE);
+    auto *samp_nchw_tensor = unet_sample_host_.get();
+    auto *ts_nchw_tensor = unet_timestep_host_.get();
+    auto *enc_nchw_tensor = unet_encoder_host_.get();
 
     const size_t latent_count = (size_t)4 * (req.height / 8) * (req.width / 8);
     const size_t output_count = (skip_uncond ? 1 : 2) * latent_count;
@@ -182,12 +189,15 @@ class PipelineSd15Cpu : public Pipeline {
     memcpy(out_batch2 + (skip_uncond ? latent_count : 0),
            samp_nchw_tensor->host<float>(), output_count * sizeof(float));
 
-    delete samp_nchw_tensor;
-    delete ts_nchw_tensor;
-    delete enc_nchw_tensor;
+    // Staging tensors remain owned by the pipeline until endDenoise().
   }
 
   void endDenoise() override {
+    // Host buffers reference the resized session's shape; free before the
+    // MNN session and interpreter are destroyed or replaced.
+    unet_sample_host_.reset();
+    unet_timestep_host_.reset();
+    unet_encoder_host_.reset();
     if (unet_session_) unet_interpreter_->releaseSession(unet_session_);
     unet_session_ = nullptr;
     delete unet_interpreter_;
@@ -262,6 +272,9 @@ class PipelineSd15Cpu : public Pipeline {
 
   MNN::Interpreter *unet_interpreter_ = nullptr;
   MNN::Session *unet_session_ = nullptr;
+  std::unique_ptr<MNN::Tensor> unet_sample_host_;
+  std::unique_ptr<MNN::Tensor> unet_timestep_host_;
+  std::unique_ptr<MNN::Tensor> unet_encoder_host_;
 };
 
 #endif  // PIPELINESD15CPU_HPP
