@@ -33,6 +33,12 @@ jobs:
             app/src/main/cpp/3rdparty/xtl \
             app/src/main/cpp/3rdparty/zstd
 
+      - name: Fix two pinned tokenizer Rust implicit autoref errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 enhanced/patch_tokenizers_rust.py
+
       - name: Install Rust Android arm64 target
         shell: bash
         run: |
