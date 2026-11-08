@@ -23,7 +23,7 @@ internal object PhotoVideoTimeline {
         val interval = fps * secondsPerPhoto
         val index = frame / interval
         val offset = frame % interval
-        val fadeFrames = (fps * 0.35f).toInt().coerceIn(1, interval / 2)
+        val fadeFrames = (fps * 0.35f).toInt().coerceIn(1, maxOf(1, interval / 2))
         val fadeStart = interval - fadeFrames
         val next = if (index + 1 < photoCount && offset >= fadeStart) index + 1 else null
         val fraction = if (next != null) {
