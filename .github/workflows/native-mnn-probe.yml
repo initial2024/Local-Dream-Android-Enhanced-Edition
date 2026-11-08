@@ -8,6 +8,11 @@ on:
       - 'enhanced/patch_tokenizers_rust.py'
       - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
       - '.github/workflows/native-mnn-probe.yml'
+  pull_request:
+    paths:
+      - 'app/src/main/cpp/mnn_only/**'
+      - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
+      - '.github/workflows/native-mnn-probe.yml'
   workflow_dispatch:
 
 permissions:
@@ -92,6 +97,12 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.10
+
+      - name: Fast compile check for native server translation unit
+        shell: bash
+        run: |
+          set -euo pipefail
+          ninja -C "$RUNNER_TEMP/mnn-only-build"             CMakeFiles/libstable_diffusion_core.so.dir/main_mnn.cpp.o
 
       - name: Compile arm64 inference engine
         shell: bash
