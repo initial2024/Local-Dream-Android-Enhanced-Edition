@@ -251,6 +251,7 @@ class BackendService : Service() {
             backendType = config.backendType,
             qualcommSoc = Model.isQualcommDevice(),
             compatibleHexagon = DitEngine.isSupportedDevice(),
+            mnnOnlyBuild = BuildConfig.MNN_ONLY_NATIVE,
         )
         if (rejected != null) {
             Log.w(TAG, "Reject unsupported backend ${config.backendType}: $rejected")
