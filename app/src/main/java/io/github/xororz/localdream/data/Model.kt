@@ -644,7 +644,7 @@ class ModelRepository private constructor(private val context: Context) {
         val customModels = scanCustomModels()
 
         val predefinedModels = mutableListOf<Model>().apply {
-            if (DitEngine.isSupportedDevice()) {
+            if (!BuildConfig.MNN_ONLY_NATIVE && DitEngine.isSupportedDevice()) {
                 add(createZImageTurboModel())
                 add(createFlux2KleinModel())
                 add(createFlux2KleinModel(nineB = true))
