@@ -653,7 +653,7 @@ class ModelRepository private constructor(private val context: Context) {
                 add(createQwenImage21Model(turbo = true))
                 add(createKrea2TurboModel())
             }
-            if (isSdxlCapableSoc(getDeviceSoc())) {
+            if (!BuildConfig.MNN_ONLY_NATIVE && isSdxlCapableSoc(getDeviceSoc())) {
                 add(createIllustriousV16Model())
                 add(createIllustriousV16Dmd2Model())
                 add(createCyberRealisticV10Model())
