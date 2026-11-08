@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
           # The code must be exactly the same native implementation as the
           # already-successful source build. Fail closed on future source edits.
-          VERIFIED_SOURCE="af664c9d46ff9b12b6d7ca9cc51e6f9fb7a35414"
+          VERIFIED_SOURCE="f50df90d96889273a2faae1b667baa889c1ebe52"
           git cat-file -e "$VERIFIED_SOURCE^{commit}"
           git diff --exit-code "$VERIFIED_SOURCE" HEAD -- \
             app/src/main/cpp/mnn_only \
@@ -48,14 +48,14 @@ jobs:
           echo "Native source matches previously verified commit $VERIFIED_SOURCE"
 
           mkdir -p "$RUNNER_TEMP/verified-core"
-          gh run download 42492541182 \
+          gh run download 42499475841 \
             --repo "$GITHUB_REPOSITORY" \
             --name LocalDream-MNN-only-arm64-EXPERIMENTAL-not-an-APK \
             --dir "$RUNNER_TEMP/verified-core"
           NATIVE_FROM_CI="$(find "$RUNNER_TEMP/verified-core" -type f -name libstable_diffusion_core.so -print -quit)"
           test -s "$NATIVE_FROM_CI"
           printf '%s  %s\n' \
-            '92229e02379d9f86eafbe587f7d7a08f3e12b04c081aa3271b577be4fad54e6c' \
+            '6f5b1471daaf349fdea926000bf84f0f6c71662278b1afbd964ec9d3fbcfc30d' \
             "$NATIVE_FROM_CI" | sha256sum --check --status
 
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n1)"
