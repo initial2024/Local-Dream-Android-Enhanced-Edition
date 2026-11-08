@@ -35,6 +35,24 @@ class BackendCompatibilityTest {
         }
     }
 
+    @Test fun enhancedBasicDoesNotAdvertiseMissingNativeImplementations() {
+        assertNull(
+            BackendCompatibility.rejection(
+                "sd15cpu", qualcommSoc = false, compatibleHexagon = false,
+                mnnOnlyBuild = true,
+            ),
+        )
+        for (backend in listOf("sdxlmnn", "sd15npu", "sdxl", "upscaler",
+            "anima", "zimage", "klein", "qwen21", "krea2turbo")) {
+            val reason = BackendCompatibility.rejection(
+                backend, qualcommSoc = true, compatibleHexagon = true,
+                mnnOnlyBuild = true,
+            )
+            assertNotNull(backend, reason)
+            assertTrue(reason!!.contains("MNN-only"))
+        }
+    }
+
     @Test fun unknownBackendFailsClosed() {
         assertTrue(BackendCompatibility.rejection("future_quant_backend", true, true)!!
             .contains("Unknown"))
