@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0"
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
       - name: Run Kotlin unit tests without packaging or signing an APK
         run: |
           chmod +x gradlew
