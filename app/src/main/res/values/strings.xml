@@ -543,4 +543,11 @@
     <string name="enhanced_mnn_cpu_threads">MNN CPU threads: %1$d (takes effect when model restarts)</string>
     <string name="enhanced_mnn_native_hd_title">Native AI resolution (experimental)</string>
     <string name="enhanced_mnn_native_hd_warning">512×512 is standard SD1.5. Larger sizes run diffusion at the selected real pixel dimensions, not just resize an export. 768/1024 can use much more RAM, run slower, change composition or fail on some Mali drivers. Test 640, then 768 before 1024. 1440×1080 export remains scaled/cropped unless a separately verified AI upscaler is selected.</string>
+    <string name="enhanced_switch_mnn_model_hint">Tap to switch an installed MNN model</string>
+    <string name="enhanced_manage_mnn_models">Manage / download models</string>
+    <string name="enhanced_import_mnn_zip">Import compatible SD1.5 MNN ZIP</string>
+    <string name="enhanced_import_mnn_zip_hint">Accepts preconverted Local Dream MNN packages only (CLIP, UNet, VAE, tokenizer and embeddings). Does not convert .safetensors, SDXL, FLUX or Qualcomm QNN models. Existing model folders are never replaced.</string>
+    <string name="enhanced_mnn_imported_bytes">Importing: %1$d MiB extracted</string>
+    <string name="enhanced_mnn_zip_import_success">MNN model %1$s imported; ready to select</string>
+    <string name="enhanced_mnn_zip_import_failure">Import rejected: %1$s</string>
 </resources>
