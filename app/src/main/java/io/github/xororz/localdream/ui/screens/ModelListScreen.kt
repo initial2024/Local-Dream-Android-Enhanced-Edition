@@ -95,6 +95,7 @@ import io.github.xororz.localdream.ui.theme.ThemePreset
 import io.github.xororz.localdream.ui.theme.scheme
 import io.github.xororz.localdream.utils.LogCapture
 import io.github.xororz.localdream.utils.TempCleaner
+import io.github.xororz.localdream.video.PhotoVideoActivity
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
