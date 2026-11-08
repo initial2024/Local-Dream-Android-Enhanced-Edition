@@ -82,8 +82,12 @@ object TempCleaner {
         }
 
         // Transient base64 IPC buffers.
-        for (name in listOf("tmp.txt", "mask.txt", "ultrafix.txt")) {
-            File(filesDir, name).takeIf { it.isFile }?.let { targets += it }
+        // The backend consumes these IPC payloads while running. An explicit
+        // cleanup must not delete data being read by a live generation.
+        if (!ModelStorage.isBusy()) {
+            for (name in listOf("tmp.txt", "mask.txt", "ultrafix.txt")) {
+                File(filesDir, name).takeIf { it.isFile }?.let { targets += it }
+            }
         }
 
         // Half-written backup-import images.
