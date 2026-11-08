@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -72,7 +74,8 @@ Options parseArgs(int argc, char **argv) {
     } else if (flag == "--help") {
       std::cout << "LocalDream MNN-only SD1.5 runtime\n"
                    "--type sd15cpu --model_dir DIR [--port 8081]"
-                   " [--no_img2img] [--use_v_pred] [--cpu_threads 1..8]\n";
+                   " [--no_img2img] [--use_v_pred] [--cpu_threads 1..8]\n"
+                   "--convert DIR [--clip_skip_2] (offline SD1.5)\n";
       std::exit(EXIT_SUCCESS);
     } else if (flag == "--version") {
       std::cout << "LocalDream enhanced MNN-only experimental v1\n";
@@ -120,6 +123,16 @@ void convertSd15Safetensors(const Options &opts) {
     throw std::invalid_argument("Unsupported SD1.5 checkpoint size");
   if (fs::exists(dir / "finished"))
     throw std::invalid_argument("Refusing to convert a finished model in place");
+  // Reject corrupt or malicious safetensors headers BEFORE SafeTensorReader
+  // turns the user-controlled 64-bit length into a large memory allocation.
+  std::ifstream source_file(source, std::ios::binary);
+  std::uint64_t header_length = 0;
+  source_file.read(reinterpret_cast<char*>(&header_length), sizeof(header_length));
+  if (!source_file || header_length < 2 ||
+      header_length > 16ull * 1024 * 1024 ||
+      header_length + sizeof(header_length) >= source_size)
+    throw std::invalid_argument("Unreasonable safetensors metadata size");
+  source_file.close();
 
   const std::vector<std::string> source_graphs = {
       "clip_v2.mnn", "unet.mnn", "vae_decoder.mnn",
