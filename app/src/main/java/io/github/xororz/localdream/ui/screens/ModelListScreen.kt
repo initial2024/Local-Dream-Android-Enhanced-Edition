@@ -312,6 +312,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
     val remoteActive = remoteRepository.isActive
 
     var showHelpDialog by remember { mutableStateOf(false) }
+    var showSuggestedMnnCheckpoints by remember { mutableStateOf(false) }
     var mnnZipImporting by remember { mutableStateOf(false) }
     var mnnZipImportBytes by remember { mutableLongStateOf(0L) }
     val mnnZipImporter = rememberLauncherForActivityResult(
@@ -1142,6 +1143,38 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    TextButton(
+                                        onClick = {
+                                            showSuggestedMnnCheckpoints = !showSuggestedMnnCheckpoints
+                                        },
+                                    ) {
+                                        Text(stringResource(R.string.enhanced_recommended_sd15_models))
+                                    }
+                                    AnimatedVisibility(visible = showSuggestedMnnCheckpoints) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            MnnModelSuggestions.options.forEach { suggestion ->
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        val url = Uri.parse(suggestion.sourcePage)
+                                                        context.startActivity(
+                                                            Intent(Intent.ACTION_VIEW, url),
+                                                        )
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                ) {
+                                                    Text(
+                                                        "${suggestion.title} — ${suggestion.purpose}",
+                                                        maxLines = 2,
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                stringResource(R.string.enhanced_recommendation_license_notice),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
                                     OutlinedButton(
                                         onClick = {
                                             mnnZipImporter.launch(
