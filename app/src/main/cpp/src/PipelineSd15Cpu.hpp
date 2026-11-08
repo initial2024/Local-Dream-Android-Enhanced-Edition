@@ -18,8 +18,9 @@ class PipelineSd15Cpu : public Pipeline {
   PipelineSd15Cpu(TextEncoder &text_encoder, const std::string &model_dir,
                   std::string clip_path, std::string unet_path,
                   std::string vae_decoder_path, std::string vae_encoder_path,
-                  bool use_v_pred)
+                  bool use_v_pred, int cpu_threads = 4)
       : Pipeline(text_encoder, model_dir, /*sdxl=*/false, use_v_pred),
+        cpu_threads_(cpu_threads),
         clip_path_(std::move(clip_path)),
         unet_path_(std::move(unet_path)),
         vae_decoder_path_(std::move(vae_decoder_path)),
@@ -42,12 +43,17 @@ class PipelineSd15Cpu : public Pipeline {
           "Failed to create temporary MNN CLIP interpreter!");
 
     MnnSessionOptions opts;  // CLIP always runs on CPU
+    opts.num_threads = cpu_threads_;
     MNN::Session *session = createMnnSession(interpreter, opts);
     if (!session) {
       delete interpreter;
       throw std::runtime_error("Failed to create temporary MNN CLIP session!");
     }
 
+    ScopeExit stage_cleanup{[interpreter, session] {
+      interpreter->releaseSession(session);
+      delete interpreter;
+    }};
     auto input = interpreter->getSessionInput(session, "input_embedding");
     interpreter->resizeTensor(input, {1, 77, text_embedding_size});
     interpreter->resizeSession(session);
@@ -58,7 +64,8 @@ class PipelineSd15Cpu : public Pipeline {
       for (size_t offset = 0; offset < embeddings.size(); offset += chunk_size) {
         memcpy(input->host<float>(), embeddings.data() + offset,
                chunk_size * sizeof(float));
-        interpreter->runSession(session);
+        if (interpreter->runSession(session) != 0)
+          throw std::runtime_error("MNN text encoder execution failed");
         auto out = interpreter->getSessionOutput(session, "last_hidden_state");
         memcpy(dst + offset, out->host<float>(), chunk_size * sizeof(float));
       }
@@ -67,8 +74,7 @@ class PipelineSd15Cpu : public Pipeline {
     if (need_negative) run_side(prompts.negative_embeddings, cond.negHidden());
     if (need_positive) run_side(prompts.positive_embeddings, cond.posHidden());
 
-    interpreter->releaseSession(session);
-    delete interpreter;
+    // Automatically released on both successful and exceptional paths.
   }
 
   void vaeEncode(const GenerationRequest &req, const float *image, float *mean,
@@ -84,37 +90,38 @@ class PipelineSd15Cpu : public Pipeline {
       throw std::runtime_error("Failed create temp MNN VAE Enc session!");
     }
 
+    ScopeExit stage_cleanup{[interpreter, session] {
+      interpreter->releaseSession(session);
+      delete interpreter;
+    }};
     auto input = interpreter->getSessionInput(session, "input");
     interpreter->resizeTensor(input, {1, 3, req.height, req.width});
     interpreter->resizeSession(session);
     if (req.use_opencl) interpreter->updateCacheFile(session);
     interpreter->releaseModel();
 
-    auto input_nchw_tensor = new MNN::Tensor(input, MNN::Tensor::CAFFE);
+    auto input_nchw_tensor = std::make_unique<MNN::Tensor>(input, MNN::Tensor::CAFFE);
     auto mean_t = interpreter->getSessionOutput(session, "mean");
     auto std_t = interpreter->getSessionOutput(session, "std");
-    auto mean_nchw_tensor = new MNN::Tensor(mean_t, MNN::Tensor::CAFFE);
-    auto std_nchw_tensor = new MNN::Tensor(std_t, MNN::Tensor::CAFFE);
+    auto mean_nchw_tensor = std::make_unique<MNN::Tensor>(mean_t, MNN::Tensor::CAFFE);
+    auto std_nchw_tensor = std::make_unique<MNN::Tensor>(std_t, MNN::Tensor::CAFFE);
 
     size_t image_count = (size_t)3 * req.height * req.width;
     size_t latent_count = (size_t)4 * (req.height / 8) * (req.width / 8);
     memcpy(input_nchw_tensor->host<float>(), image,
            image_count * sizeof(float));
-    input->copyFromHostTensor(input_nchw_tensor);
-    interpreter->runSession(session);
+    input->copyFromHostTensor(input_nchw_tensor.get());
+    if (interpreter->runSession(session) != 0)
+      throw std::runtime_error("MNN VAE inference failed");
 
-    mean_t->copyToHostTensor(mean_nchw_tensor);
-    std_t->copyToHostTensor(std_nchw_tensor);
+    mean_t->copyToHostTensor(mean_nchw_tensor.get());
+    std_t->copyToHostTensor(std_nchw_tensor.get());
     memcpy(mean, mean_nchw_tensor->host<float>(), latent_count * sizeof(float));
     memcpy(std_dev, std_nchw_tensor->host<float>(),
            latent_count * sizeof(float));
 
-    delete input_nchw_tensor;
-    delete mean_nchw_tensor;
-    delete std_nchw_tensor;
 
-    interpreter->releaseSession(session);
-    delete interpreter;
+    // Automatically released on both successful and exceptional paths.
   }
 
   void beginDenoise(const GenerationRequest &req) override {
@@ -181,7 +188,8 @@ class PipelineSd15Cpu : public Pipeline {
     enc->copyFromHostTensor(enc_nchw_tensor);
 
     // CFG=1 runs only the positive batch.
-    unet_interpreter_->runSession(unet_session_);
+    if (unet_interpreter_->runSession(unet_session_) != 0)
+      throw std::runtime_error("MNN UNet inference failed");
 
     auto output =
         unet_interpreter_->getSessionOutput(unet_session_, "out_sample");
@@ -221,33 +229,35 @@ class PipelineSd15Cpu : public Pipeline {
       throw std::runtime_error("Failed create temp MNN VAE Dec session!");
     }
 
+    ScopeExit stage_cleanup{[interpreter, session] {
+      interpreter->releaseSession(session);
+      delete interpreter;
+    }};
     auto input = interpreter->getSessionInput(session, "latent_sample");
     interpreter->resizeTensor(input, {1, 4, req.height / 8, req.width / 8});
     interpreter->resizeSession(session);
     if (req.use_opencl) interpreter->updateCacheFile(session);
     interpreter->releaseModel();
 
-    auto input_nchw_tensor = new MNN::Tensor(input, MNN::Tensor::CAFFE);
+    auto input_nchw_tensor = std::make_unique<MNN::Tensor>(input, MNN::Tensor::CAFFE);
     auto output = interpreter->getSessionOutput(session, "sample");
-    auto output_nchw_tensor = new MNN::Tensor(output, MNN::Tensor::CAFFE);
+    auto output_nchw_tensor = std::make_unique<MNN::Tensor>(output, MNN::Tensor::CAFFE);
 
     size_t latent_count = (size_t)4 * (req.height / 8) * (req.width / 8);
     size_t pixel_count = (size_t)3 * req.height * req.width;
     memcpy(input_nchw_tensor->host<float>(), latents,
            latent_count * sizeof(float));
-    input->copyFromHostTensor(input_nchw_tensor);
+    input->copyFromHostTensor(input_nchw_tensor.get());
 
-    interpreter->runSession(session);
+    if (interpreter->runSession(session) != 0)
+      throw std::runtime_error("MNN VAE inference failed");
 
-    output->copyToHostTensor(output_nchw_tensor);
+    output->copyToHostTensor(output_nchw_tensor.get());
     memcpy(pixels, output_nchw_tensor->host<float>(),
            pixel_count * sizeof(float));
 
-    delete input_nchw_tensor;
-    delete output_nchw_tensor;
 
-    interpreter->releaseSession(session);
-    delete interpreter;
+    // Automatically released on both successful and exceptional paths.
   }
 
  private:
@@ -257,14 +267,17 @@ class PipelineSd15Cpu : public Pipeline {
                                    const char *stage) const {
     MnnSessionOptions opts;
     opts.use_opencl = req.use_opencl;
+    opts.num_threads = cpu_threads_;
     if (req.use_opencl) {
       auto cache_dir = ensureCacheDir(model_dir_);
-      opts.cache_file = (cache_dir.empty() ? model_dir_ : cache_dir) + "/" +
-                        stage + ".mnnc." + std::to_string(req.width);
+      if (!cache_dir.empty())
+        opts.cache_file =
+            cache_dir + "/" + stage + ".mnnc." + std::to_string(req.width);
     }
     return opts;
   }
 
+  const int cpu_threads_;
   const std::string clip_path_;
   const std::string unet_path_;
   const std::string vae_decoder_path_;
