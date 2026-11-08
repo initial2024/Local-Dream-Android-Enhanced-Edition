@@ -1,0 +1,59 @@
+name: Verify Android Kotlin and basic flavor (no APK release)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradle.properties'
+      - 'settings.gradle.kts'
+      - 'enhanced/**'
+      - '.github/workflows/verify-android.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+      - name: Verify pinned enhancement source contract
+        run: python3 enhanced/apply_overlay.py --check
+      - name: Check original attribution and chosen variant
+        run: |
+          set -euo pipefail
+          test -s LICENSE
+          grep -Fq 'applicationId = "io.github.initial2024.localdream.enhanced"' app/build.gradle.kts
+          grep -Fq 'create("basic")' app/build.gradle.kts
+          grep -Fq 'io.github.xororz.localdream' app/src/main/java/io/github/xororz/localdream/MainActivity.kt
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install required Android compile SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-37" "build-tools;36.0.0"
+      - name: Run Kotlin unit tests without packaging or signing an APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace :app:testBasicDebugUnitTest
+      - name: Assert no production APK is produced by this verification job
+        run: |
+          echo "Compile/unit test only: a successful job is NOT a signed build, NPU runtime proof or device benchmark."
