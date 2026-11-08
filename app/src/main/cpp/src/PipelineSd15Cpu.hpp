@@ -261,8 +261,10 @@ class PipelineSd15Cpu : public Pipeline {
   }
 
  private:
-  // OpenCL tuning caches are kept per stage and per width, matching the
-  // historical "<stage>.mnnc.<width>" naming so existing caches stay valid.
+  // Each OpenCL cache must be keyed by the actual MNN tensor geometry.
+  // Preserve the legacy per-width cache name for square canvases; for
+  // rectangular HD sizes distinguish width AND height so incompatible
+  // tuning metadata never gets reused across different tensor shapes.
   MnnSessionOptions sessionOptions(const GenerationRequest &req,
                                    const char *stage) const {
     MnnSessionOptions opts;
@@ -272,7 +274,8 @@ class PipelineSd15Cpu : public Pipeline {
       auto cache_dir = ensureCacheDir(model_dir_);
       if (!cache_dir.empty())
         opts.cache_file =
-            cache_dir + "/" + stage + ".mnnc." + std::to_string(req.width);
+            cache_dir + "/" + stage + ".mnnc." + std::to_string(req.width) +
+            (req.height == req.width ? "" : "x" + std::to_string(req.height));
     }
     return opts;
   }
