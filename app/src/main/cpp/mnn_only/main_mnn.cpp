@@ -3,7 +3,8 @@
 // IMPORTANT: this is a separate source target, NOT an ABI-compatible rewrite
 // of Qualcomm's QNN runtime. It preserves Local Dream's local HTTP/SSE contract
 // and SD1.5 model layout. It intentionally does NOT claim support for
-// Qualcomm-specific NPU/DiT, SDXL or model conversion.
+// Qualcomm-specific NPU/DiT or SDXL. The original SD1.5 MNN
+// safetensors conversion is supported as a separate bounded offline command.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -22,6 +23,7 @@
 #include "Pipeline.hpp"
 #include "PipelineSd15Cpu.hpp"
 #include "RequestParser.hpp"
+#include "SafeTensor2MNN.hpp"
 #include "SDUtils.hpp"
 #include "TextEncoder.hpp"
 #include "httplib.h"
@@ -36,6 +38,8 @@ struct Options {
   int cpu_threads = 4;  // configurable; OpenCL kernels do not use this
   bool disable_img2img = false;
   bool use_v_pred = false;
+  bool convert_mode = false;
+  bool convert_clip_skip_2 = false;
 };
 
 // A conservative error boundary: unsupported QNN flags fail closed, rather
@@ -56,6 +60,11 @@ Options parseArgs(int argc, char **argv) {
       opts.port = std::stoi(value());
     } else if (flag == "--cpu_threads") {
       opts.cpu_threads = std::stoi(value());
+    } else if (flag == "--convert") {
+      opts.convert_mode = true;
+      opts.model_dir = value();
+    } else if (flag == "--clip_skip_2") {
+      opts.convert_clip_skip_2 = true;
     } else if (flag == "--no_img2img") {
       opts.disable_img2img = true;
     } else if (flag == "--use_v_pred") {
@@ -73,14 +82,14 @@ Options parseArgs(int argc, char **argv) {
       // silently expose a local image generator on arbitrary public Wi-Fi.
       throw std::invalid_argument(
           "LAN binding is disabled until authenticated remote hosting ships");
-    } else if (flag == "--upscaler_mode" || flag == "--convert") {
+    } else if (flag == "--upscaler_mode") {
       throw std::invalid_argument(
-          "Upscaler/model conversion is not included in this native SD1.5 target");
+          "Neural upscaler requires a separately verified MNN model");
     } else {
       throw std::invalid_argument("Unsupported native runtime option: " + flag);
     }
   }
-  if (opts.type != "sd15cpu") {
+  if (!opts.convert_mode && opts.type != "sd15cpu") {
     throw std::invalid_argument(
         "This MNN-only build supports sd15cpu. QNN, SDXL and DiT require "
         "separately validated backends; requested: " + opts.type);
@@ -92,6 +101,56 @@ Options parseArgs(int argc, char **argv) {
     throw std::invalid_argument("--cpu_threads must be in 1..8");
   if (opts.model_dir.empty()) throw std::invalid_argument("Missing --model_dir");
   return opts;
+}
+
+// Offline one-shot model conversion, inherited from upstream SafeTensor2MNN.
+// A dedicated Android staging folder contains only the user-selected model,
+// baseline .mnn graphs and tokenizer, never an installed model directory.
+void convertSd15Safetensors(const Options &opts) {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::weakly_canonical(opts.model_dir);
+  if (!fs::is_directory(dir))
+    throw std::invalid_argument("Conversion staging directory missing");
+  const auto source = dir / "model.safetensors";
+  if (!fs::is_regular_file(source))
+    throw std::invalid_argument("Expected model.safetensors in staging directory");
+  const auto source_size = fs::file_size(source);
+  if (source_size < 100ull * 1024 * 1024 ||
+      source_size > 6ull * 1024 * 1024 * 1024)
+    throw std::invalid_argument("Unsupported SD1.5 checkpoint size");
+  if (fs::exists(dir / "finished"))
+    throw std::invalid_argument("Refusing to convert a finished model in place");
+
+  const std::vector<std::string> source_graphs = {
+      "clip_v2.mnn", "unet.mnn", "vae_decoder.mnn",
+      "vae_encoder.mnn", "tokenizer.json"};
+  for (const auto &part : source_graphs)
+    if (!fs::is_regular_file(dir / part))
+      throw std::invalid_argument("Missing SD1.5 conversion base: " + part);
+
+  // No QNN runtime is loaded and no network connection is used. LoRAs must
+  // be merged into the source model before conversion; do not silently ignore
+  // a user-supplied LoRA. The original UI conversion path is limited to one
+  // plain SD1.5 checkpoint in this enhanced edition.
+  for (auto it = fs::directory_iterator(dir);
+       it != fs::directory_iterator(); ++it) {
+    const auto file = it->path().filename().string();
+    if (file.rfind("lora.", 0) == 0)
+      throw std::invalid_argument(
+          "LoRA sidecars are not supported; merge LoRA into safetensors first");
+  }
+  std::cout << "Converting SD1.5 safetensors offline using MNN..." << std::endl;
+  generateMNNModels(dir.string(), "model.safetensors",
+                    opts.convert_clip_skip_2);
+  const std::vector<std::string> outputs = {
+      "clip_v2.mnn.weight", "unet.mnn.weight",
+      "vae_decoder.mnn.weight", "vae_encoder.mnn.weight",
+      "pos_emb.bin", "token_emb.bin", "finished"};
+  for (const auto &part : outputs)
+    if (!fs::is_regular_file(dir / part) ||
+        (part != "finished" && fs::file_size(dir / part) == 0))
+      throw std::runtime_error("Incomplete MNN conversion: " + part);
+  std::cout << "MNN conversion verified in temporary directory" << std::endl;
 }
 
 std::mutex generation_lock;
@@ -282,6 +341,10 @@ void registerTokenize(httplib::Server &server, TextEncoder &encoder) {
 int main(int argc, char **argv) {
   try {
     const Options opts = parseArgs(argc, argv);
+    if (opts.convert_mode) {
+      convertSd15Safetensors(opts);
+      return EXIT_SUCCESS;
+    }
     TextEncoder encoder(false, false, 0, false);
     encoder.loadTokenizer((std::filesystem::path(opts.model_dir) /
                            "tokenizer.json").string());
