@@ -73,7 +73,16 @@ jobs:
           cmake --build "$RUNNER_TEMP/mnn-production" --target libstable_diffusion_core.so --parallel 2
           mkdir -p app/src/main/jniLibs/arm64-v8a
           cp "$RUNNER_TEMP/mnn-production/bin/arm64-v8a/libstable_diffusion_core.so"             app/src/main/jniLibs/arm64-v8a/libstable_diffusion_core.so
-          test -s app/src/main/jniLibs/arm64-v8a/libstable_diffusion_core.so
+          NATIVE="app/src/main/jniLibs/arm64-v8a/libstable_diffusion_core.so"
+          test -s "$NATIVE"
+          # Remove only unnecessary native symbol/debug tables from the
+          # signed test APK. Keep original unstripped CI artifact for diagnosis.
+          BEFORE="$(stat -c%s "$NATIVE")"
+          "$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"             --strip-unneeded "$NATIVE"
+          AFTER="$(stat -c%s "$NATIVE")"
+          test -s "$NATIVE"
+          test "$AFTER" -le "$BEFORE"
+          echo "Native size before/after safe symbol stripping: $BEFORE -> $AFTER bytes"
 
       - name: Gate 1 — real Android native inference core required
         shell: bash
