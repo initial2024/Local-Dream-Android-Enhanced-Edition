@@ -662,7 +662,7 @@ class ModelRepository private constructor(private val context: Context) {
             // Do not offer Qualcomm Hexagon/QNN model packages on MediaTek,
             // Exynos or other non-Qualcomm chipsets. Otherwise users download
             // large, incompatible packages that cannot run on their device.
-            if (Model.isQualcommDevice()) {
+            if (!BuildConfig.MNN_ONLY_NATIVE && Model.isQualcommDevice()) {
                 add(createAnythingV5Model())
                 add(createQteaMixModel())
                 add(createAbsoluteRealityModel())
