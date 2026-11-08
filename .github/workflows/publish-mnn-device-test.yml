@@ -97,8 +97,10 @@ jobs:
           should remain installed. Do not delete previous models or app data.
 
           Supported experimental backend: original-format SD1.5 MNN CPU/OpenCL.
-          Qualcomm-only QNN, SDXL and DiT are excluded. 1440x1080 export from
-          this backend is scaling/cropping, not native high-resolution diffusion.
+          Qualcomm-only QNN, SDXL and DiT are excluded.
+          Alpha.2 native SD1.5 experimental size presets up to 1024x1024
+          have NOT been verified on a real device; try 640 and 768 first.
+          1440x1080 bitmap export is scaled/cropped, not extra diffusion detail.
 
           Tests: first check boot; then run 512x512, 20 steps, fixed seed,
           and compare CPU and OpenCL results. Stop if model data is corrupted.
@@ -115,7 +117,12 @@ jobs:
           test -s dist/LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.apk
           test -s dist/LocalDreamEnhanced_SD15_MNN_arm64_DeviceTest.zip
           cat dist/SHA256SUMS.txt
-          echo "TAG=v0.1.0-alpha.1-mnn-test-$RUN_ID" >> "$GITHUB_ENV"
+          VERSION="$(sed -n 's/^[[:space:]]*versionName = "\(0\.1\.0-alpha\.[0-9]*\)".*$/\1/p' app/build.gradle.kts | head -n1)"
+          if ! [[ "$VERSION" =~ ^0[.]1[.]0-alpha[.][0-9]+$ ]]; then
+            echo '::error::Could not verify enhanced app version for release tag'
+            exit 1
+          fi
+          echo "TAG=v$VERSION-mnn-test-$RUN_ID" >> "$GITHUB_ENV"
 
       - name: Publish immutable GitHub pre-release with direct APK and ZIP assets
         shell: bash
