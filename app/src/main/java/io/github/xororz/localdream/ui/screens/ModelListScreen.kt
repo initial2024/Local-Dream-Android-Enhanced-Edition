@@ -271,6 +271,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
 
     var downloadingModel by remember { mutableStateOf<Model?>(null) }
     var currentProgress by remember { mutableStateOf<DownloadProgress?>(null) }
+    var checkpointPhase by remember { mutableStateOf<String?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
     var showDownloadConfirm by remember { mutableStateOf<Model?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -312,7 +313,6 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
     val remoteActive = remoteRepository.isActive
 
     var showHelpDialog by remember { mutableStateOf(false) }
-    var showSuggestedMnnCheckpoints by remember { mutableStateOf(false) }
     var mnnZipImporting by remember { mutableStateOf(false) }
     var mnnZipImportBytes by remember { mutableLongStateOf(0L) }
     val mnnZipImporter = rememberLauncherForActivityResult(
@@ -372,6 +372,15 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                     }
                 }
 
+                is ModelDownloadService.DownloadState.Converting -> {
+                    val model = modelRepository.models.find { it.id == state.modelId }
+                    if (model != null) {
+                        downloadingModel = model
+                        currentProgress = null
+                        checkpointPhase = state.phase
+                    }
+                }
+
                 is ModelDownloadService.DownloadState.Extracting -> {
                     val model = modelRepository.models.find { it.id == state.modelId }
                     if (model != null) {
@@ -384,6 +393,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                     modelRepository.refreshModelState(state.modelId)
                     downloadingModel = null
                     currentProgress = null
+                    checkpointPhase = null
                     // Fire-and-forget so the snackbar's display time does not
                     // block this collector from seeing further states.
                     scope.launch { snackbarHostState.showSnackbar(msgDownloadDone) }
@@ -392,6 +402,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                 is ModelDownloadService.DownloadState.Error -> {
                     downloadingModel = null
                     currentProgress = null
+                    checkpointPhase = null
                     downloadError = state.message
                 }
 
@@ -399,6 +410,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                     if (downloadingModel != null) {
                         downloadingModel = null
                         currentProgress = null
+                        checkpointPhase = null
                     }
                 }
             }
@@ -1144,38 +1156,13 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    TextButton(
-                                        onClick = {
-                                            showSuggestedMnnCheckpoints = !showSuggestedMnnCheckpoints
-                                        },
-                                    ) {
-                                        Text(stringResource(R.string.enhanced_recommended_sd15_models))
-                                    }
-                                    AnimatedVisibility(visible = showSuggestedMnnCheckpoints) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            MnnModelSuggestions.options.forEach { suggestion ->
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        val url = Uri.parse(suggestion.sourcePage)
-                                                        context.startActivity(
-                                                            Intent(Intent.ACTION_VIEW, url),
-                                                        )
-                                                    },
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                ) {
-                                                    Text(
-                                                        "${suggestion.title} — ${suggestion.purpose}",
-                                                        maxLines = 2,
-                                                    )
-                                                }
-                                            }
-                                            Text(
-                                                stringResource(R.string.enhanced_recommendation_license_notice),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    }
+                                    Text(
+                                        "DreamShaper 8 and Realistic Vision V6 appear alongside the original five models. " +
+                                            "Tap Download to verify SHA256 and convert offline to MNN. " +
+                                            "Experimental: allow about 7 GiB free storage; model licenses still apply.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                     OutlinedButton(
                                         onClick = {
                                             mnnZipImporter.launch(
@@ -2106,7 +2093,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
         ) {
             ContainedLoadingIndicator()
             Text(
-                text = stringResource(R.string.extracting),
+                text = checkpointPhase ?: stringResource(R.string.extracting),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
