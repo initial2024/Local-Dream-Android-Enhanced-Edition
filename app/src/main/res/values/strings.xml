@@ -555,4 +555,6 @@
     <string name="enhanced_merge_lora_before_import">LoRA sidecars cannot be used by this converter yet. Merge into the original checkpoint before import.</string>
     <string name="enhanced_recommended_sd15_models">Optional models to try (source links)</string>
     <string name="enhanced_recommendation_license_notice">These are external checkpoint pages, not pre-converted downloads. Confirm author, license and SHA256; open a complete SD1.5 safetensors file using the conversion button above. Device compatibility and quality are unverified.</string>
+    <string name="enhanced_one_tap_sd15_note">DreamShaper 8 and Realistic Vision V6 now download like the original five models. Original weights are verified and converted to MNN on this phone. Experimental: keep about 7 GiB free, and check source license.</string>
+    <string name="enhanced_one_tap_sd15_confirm">Download %1$s (about 2.13 GB), verify SHA256, and convert offline to MNN? This uses substantial storage/RAM. Existing models will not be overwritten.</string>
 </resources>

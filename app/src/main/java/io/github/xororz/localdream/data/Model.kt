@@ -166,12 +166,18 @@ data class Model(
     fun startDownload(context: Context) {
         // A multi-file package carries its sources in packageFiles instead.
         if (isCustom || (fileUri.isEmpty() && packageFiles.isEmpty())) return
+        val checkpoint = if (BuildConfig.MNN_ONLY_NATIVE) {
+            MnnModelSuggestions.options.firstOrNull { it.modelId == id }
+        } else null
 
         val intent = Intent(context, ModelDownloadService::class.java).apply {
             action = ModelDownloadService.ACTION_START_DOWNLOAD
             putExtra(ModelDownloadService.EXTRA_MODEL_ID, id)
             putExtra(ModelDownloadService.EXTRA_MODEL_NAME, name)
-            if (packageFiles.isNotEmpty()) {
+            if (checkpoint != null) {
+                putExtra(ModelDownloadService.EXTRA_FILE_URL, checkpoint.downloadUrl)
+                putExtra(ModelDownloadService.EXTRA_MODEL_TYPE, ModelDownloadService.TYPE_SD15_CHECKPOINT)
+            } else if (packageFiles.isNotEmpty()) {
                 putExtra(ModelDownloadService.EXTRA_FILE_URL, baseUrl.removeSuffix("/"))
                 putExtra(
                     ModelDownloadService.EXTRA_MODEL_TYPE,
@@ -365,6 +371,13 @@ data class Model(
                 return false
             }
 
+            if (MnnModelSuggestions.options.any { it.modelId == modelId }) {
+                return File(modelDir, "finished").isFile &&
+                    MnnModelPackage.requiredFiles.all { File(modelDir, it).isFile } &&
+                    listOf("clip_v2.mnn.weight", "unet.mnn.weight",
+                        "vae_decoder.mnn.weight", "vae_encoder.mnn.weight",
+                    ).all { File(modelDir, it).let { f -> f.isFile && f.length() > 0L } }
+            }
             val files = modelDir.listFiles()
             return files != null && files.isNotEmpty()
         }
@@ -705,6 +718,21 @@ class ModelRepository private constructor(private val context: Context) {
             add(createAbsoluteRealityModelCPU())
             add(createCuteYukiMixModelCPU())
             add(createChilloutMixModelCPU())
+            if (BuildConfig.MNN_ONLY_NATIVE) {
+                MnnModelSuggestions.options.forEach { checkpoint ->
+                    add(Model(
+                        id = checkpoint.modelId,
+                        name = checkpoint.title,
+                        description = checkpoint.purpose + " · Experimental offline conversion",
+                        baseUrl = "https://huggingface.co",
+                        fileUri = checkpoint.downloadUrl.substringAfter("https://huggingface.co/"),
+                        generationSize = 512,
+                        approximateSize = "~2.13 GB + conversion",
+                        isDownloaded = Model.isModelDownloaded(context, checkpoint.modelId),
+                        runOnCpu = true,
+                    ))
+                }
+            }
         }
 
         return customModels + predefinedModels.map { applyConfigDefaults(it) }
@@ -1242,6 +1270,8 @@ class ModelRepository private constructor(private val context: Context) {
             // SD 1.5 CPU
             "anythingv5cpu", "qteamixcpu", "cuteyukimixcpu",
             "absoluterealitycpu", "chilloutmixcpu",
+            // SD 1.5 experimental one-tap, converted on the phone
+            "dreamshaper8_mnn", "realisticvision6_mnn",
             // DiT
             "z_image_turbo", "flux2_klein_4b", "flux2_klein_9b", "qwen_image_2_1",
             "flux3_image_klein", "qwen_image_2_1_turbo", "krea_2_turbo",

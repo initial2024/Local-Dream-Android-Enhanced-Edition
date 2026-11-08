@@ -544,4 +544,6 @@
     <string name="enhanced_merge_lora_before_import">此转换器暂不支持单独的 LoRA 文件。请先将 LoRA 合并到原始 SD1.5 权重。</string>
     <string name="enhanced_recommended_sd15_models">可选模型参考（来源链接）</string>
     <string name="enhanced_recommendation_license_notice">这些是第三方模型的源页面，不是可直接运行的 MNN 模型。请核验来源、许可及 SHA256，下载完整的 SD1.5 safetensors 后使用上方离线转换。真机兼容性和画质仍待验证。</string>
+    <string name="enhanced_one_tap_sd15_note">DreamShaper 8 和 Realistic Vision V6 已加入原有五个模型列表；点击即可下载、校验并在手机上离线转换。此功能仍属实验性，建议预留约 7 GiB 存储空间，并遵守模型授权。</string>
+    <string name="enhanced_one_tap_sd15_confirm">下载 %1$s（约 2.13 GB），自动核验 SHA256 并在手机上离线转换为 MNN？转换较耗内存和存储，不会覆盖已有模型。</string>
 </resources>

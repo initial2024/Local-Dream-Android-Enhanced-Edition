@@ -231,6 +231,7 @@ object ModelStorage {
         return importingMnnModel ||
             download is ModelDownloadService.DownloadState.Downloading ||
             download is ModelDownloadService.DownloadState.Extracting ||
+            download is ModelDownloadService.DownloadState.Converting ||
             backend is BackendService.BackendState.Starting ||
             backend is BackendService.BackendState.Running
     }

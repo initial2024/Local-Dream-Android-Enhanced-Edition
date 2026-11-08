@@ -2,10 +2,13 @@ name: Publish signed MNN device-test APK and ZIP
 
 on:
   workflow_run:
-    # Publish just once from the full from-source verified release.
-    # The pinned fast build remains a parallel smoke/diagnostics build.
+    # Publish from either independently signed source build or the fast
+    # pinned-native build. Both require identical package/certificate gates.
+    # The fast path verifies an immutable successful native CI artifact and
+    # refuses any changes to the corresponding native source.
     workflows:
       - "Signed basic release — native and certificate gates"
+      - "Fast signed MNN device-test from pinned native artifact"
     types: [completed]
 
 permissions:
@@ -89,6 +92,7 @@ jobs:
 
           SOURCE_REVISION=$HEAD_SHA
           VERIFIED_ACTIONS_RUN=$RUN_ID
+          SIGNED_WORKFLOW=${{ github.event.workflow_run.name }}
           TARGET_ANDROID_ABI=arm64-v8a
           PACKAGE=io.github.initial2024.localdream.enhanced
 
@@ -143,5 +147,5 @@ jobs:
             --target "$HEAD_SHA" \
             --title "Local Dream Enhanced SD1.5 MNN device test ($TAG)" \
             --prerelease \
-            --notes "Unverified Android arm64 phone-test build. Exact source: $HEAD_SHA. Upstream project xororz/local-dream (CC BY-NC 4.0); credit and license retained. Signed by the user's fixed enhanced key. Not yet proven to generate on MediaTek. Preserve original app and model files. Reproducible acceptance instructions: docs/MNN_MEDIATEK_ACCEPTANCE.md."
+            --notes "Unverified Android arm64 phone-test build. Exact source: $HEAD_SHA. Verified signed workflow: ${{ github.event.workflow_run.name }}; the fast workflow reuses a SHA-pinned native CI artifact and rejects native changes. Upstream xororz/local-dream (CC BY-NC 4.0), license retained. Fixed enhanced signing certificate verified; not yet tested with new checkpoints on MediaTek. Preserve original app and model files. See docs/MNN_MEDIATEK_ACCEPTANCE.md."
           echo "Published test pre-release: $TAG"
