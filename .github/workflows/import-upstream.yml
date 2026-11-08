@@ -32,7 +32,9 @@ jobs:
         run: |
           set -euo pipefail
           git remote add localdream-upstream https://github.com/xororz/local-dream.git
-          git fetch --depth=1 localdream-upstream tag v3.0.0-alpha.7
+          # Full history is REQUIRED when pushing a merge commit whose second parent
+          # is from upstream. A shallow upstream graft caused remote unpack errors.
+          git fetch localdream-upstream tag v3.0.0-alpha.7
           expected=2f1f3ba186eeca2a52268540108b3ee6e2296d17
           actual="$(git rev-parse FETCH_HEAD)"
           echo "Expected upstream: $expected"
@@ -58,6 +60,7 @@ jobs:
           git diff --cached --stat
           test -n "$(git diff --cached --name-only)"
           git commit -m "feat(android): independent basic edition and explicit 1440x1080 HD export"
+          git fsck --full --no-reflogs
           git push origin HEAD:main
       - name: Record source link
         run: |
