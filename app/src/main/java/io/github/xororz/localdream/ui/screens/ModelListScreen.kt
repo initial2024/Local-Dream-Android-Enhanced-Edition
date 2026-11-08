@@ -1843,6 +1843,17 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                         )
                     }
 
+                    // Offline slideshow: images are never sent to a server.
+                    item {
+                        SettingNavCard(
+                            icon = Icons.Default.Movie,
+                            label = "Photos → MP4 (offline)",
+                            onClick = {
+                                context.startActivity(Intent(context, PhotoVideoActivity::class.java))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     // Clean up app scratch / orphaned temp files
                     item {
                         SettingNavCard(
