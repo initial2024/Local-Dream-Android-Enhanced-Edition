@@ -1,0 +1,90 @@
+name: Native MNN-only Android arm64 compile probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/cpp/mnn_only/**'
+      - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
+      - '.github/workflows/native-mnn-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mnn-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-mnn:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - name: Checkout exact pinned submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Check independent target has no Qualcomm SDK dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Ei '(QNN_SDK_ROOT|QnnSampleApp|QnnRuntime\.hpp|QnnModel\.hpp|libQnnHtp)' \
+              app/src/main/cpp/mnn_only/CMakeLists.txt app/src/main/cpp/mnn_only/main_mnn.cpp; then
+            echo "::error::QNN SDK source/linking was added to MediaTek target"
+            exit 1
+          fi
+          test -f app/src/main/cpp/3rdparty/MNN/CMakeLists.txt
+          test -f app/src/main/cpp/3rdparty/tokenizers-cpp/CMakeLists.txt
+          test -f app/src/main/cpp/3rdparty/zstd/build/cmake/CMakeLists.txt
+
+      - name: Install Android NDK and build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "SDK root: $ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;28.2.13676358" --channel=3
+          test -f "$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake"
+          cmake --version
+          ninja --version
+
+      - name: Configure independent MNN + OpenCL target
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S app/src/main/cpp/mnn_only -B "$RUNNER_TEMP/mnn-only-build" -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.10
+
+      - name: Compile arm64 inference engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build "$RUNNER_TEMP/mnn-only-build" --target libstable_diffusion_core.so --parallel 2
+
+      - name: Verify ELF and report size; do not claim on-device inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="$RUNNER_TEMP/mnn-only-build/bin/arm64-v8a/libstable_diffusion_core.so"
+          test -s "$BIN"
+          file "$BIN"
+          file "$BIN" | grep -q 'ELF 64-bit.*ARM aarch64'
+          "$ANDROID_HOME/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -h "$BIN"
+          sha256sum "$BIN"
+          ls -lh "$BIN"
+          echo "Native compile PASS is not yet a functional image generation proof."
+
+      - name: Upload experimental standalone native core
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalDream-MNN-only-arm64-EXPERIMENTAL-not-an-APK
+          path: ${{ runner.temp }}/mnn-only-build/bin/arm64-v8a/libstable_diffusion_core.so
+          if-no-files-found: error
+          retention-days: 7
