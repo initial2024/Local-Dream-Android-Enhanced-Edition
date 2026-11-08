@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.github.xororz.localdream.BuildConfig
 import io.github.xororz.localdream.R
+import io.github.xororz.localdream.data.BackendCompatibility
 import io.github.xororz.localdream.data.DitEngine
 import io.github.xororz.localdream.data.DitResolution
 import io.github.xororz.localdream.data.Model
@@ -243,6 +244,19 @@ class BackendService : Service() {
             updateState(BackendState.Error("Model not found"))
             return
         }
+        // Native entry points remain callable from host mode and old saved
+        // intents even when the UI hides incompatible model downloads. Guard
+        // the service itself so MediaTek never tries to start QNN/Hexagon.
+        val rejected = BackendCompatibility.rejection(
+            backendType = config.backendType,
+            qualcommSoc = Model.isQualcommDevice(),
+            compatibleHexagon = DitEngine.isSupportedDevice(),
+        )
+        if (rejected != null) {
+            Log.w(TAG, "Reject unsupported backend ${config.backendType}: $rejected")
+            updateState(BackendState.Error(rejected, config.modelId))
+            return
+        }
         idleStopJob?.cancel()
         idleStopJob = null
         desired = config
@@ -374,7 +388,15 @@ class BackendService : Service() {
             runtimeDir = prepareRuntimeDirRoot(filesDir)
 
             try {
-                val qnnlibsAssets = assets.list("qnnlibs")
+                // MNN CPU/OpenCL on MediaTek never dlopens Qualcomm QNN.
+                // Avoid extracting tens of MB of unusable Snapdragon assets
+                // on every clean install. Runtime directory still exists.
+                val qnnlibsAssets = if (Model.isQualcommDevice()) {
+                    assets.list("qnnlibs")
+                } else {
+                    Log.i(TAG, "Non-Qualcomm device: skipping QNN runtime extraction")
+                    null
+                }
                 qnnlibsAssets?.forEach { fileName ->
                     val targetLib = File(runtimeDir, fileName)
 
