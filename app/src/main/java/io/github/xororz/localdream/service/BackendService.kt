@@ -11,6 +11,7 @@ import io.github.xororz.localdream.data.BackendCompatibility
 import io.github.xororz.localdream.data.DitEngine
 import io.github.xororz.localdream.data.DitResolution
 import io.github.xororz.localdream.data.Model
+import io.github.xororz.localdream.data.MnnCpuThreads
 import io.github.xororz.localdream.data.ModelStorage
 import java.io.File
 import java.io.IOException
@@ -167,6 +168,7 @@ class BackendService : Service() {
         val width: Int,
         val height: Int,
         val listenOnAll: Boolean,
+        val cpuThreads: Int,
     )
 
     override fun onCreate() {
@@ -234,7 +236,11 @@ class BackendService : Service() {
         val listenOnAll = getSharedPreferences("app_prefs", MODE_PRIVATE)
             .getBoolean("listen_on_all_addresses", false) ||
             RemoteHostService.isRunning.value
-        return BackendConfig(modelId, backendType, width, height, listenOnAll)
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val cpuThreads = MnnCpuThreads.validated(
+            prefs.getInt(MnnCpuThreads.PREF_KEY, MnnCpuThreads.DEFAULT),
+        )
+        return BackendConfig(modelId, backendType, width, height, listenOnAll, cpuThreads)
     }
 
     // Declares the desired backend and converges to it. Cancels any pending
@@ -256,6 +262,18 @@ class BackendService : Service() {
         if (rejected != null) {
             Log.w(TAG, "Reject unsupported backend ${config.backendType}: $rejected")
             updateState(BackendState.Error(rejected, config.modelId))
+            return
+        }
+        // The standalone MNN server intentionally binds loopback only:
+        // refuse stale LAN preferences before launching a process that cannot
+        // honor them, rather than misleading the user with a failed boot.
+        if (BuildConfig.MNN_ONLY_NATIVE && config.listenOnAll) {
+            updateState(
+                BackendState.Error(
+                    "This MNN-only build supports localhost only. Disable LAN hosting.",
+                    config.modelId,
+                ),
+            )
             return
         }
         idleStopJob?.cancel()
@@ -563,6 +581,9 @@ class BackendService : Service() {
                 backendType != BACKEND_TYPE_UPSCALER
             ) {
                 command += listOf("--lib_dir", runtimeDir.absolutePath)
+            }
+            if (BuildConfig.MNN_ONLY_NATIVE && backendType == "sd15cpu") {
+                command += listOf("--cpu_threads", config.cpuThreads.toString())
             }
             if (!useImg2img && backendType != BACKEND_TYPE_UPSCALER) {
                 command += "--no_img2img"
