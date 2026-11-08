@@ -576,6 +576,25 @@ class ModelRepository private constructor(private val context: Context) {
                 val krea2TurboFile = File(dir, "KREA_2_TURBO")
 
                 when {
+                    BuildConfig.MNN_ONLY_NATIVE -> {
+                        // Preserve every incompatible model file on disk.
+                        // Only show custom SD1.5 MNN packages that the actual
+                        // standalone native backend can open. Users may later
+                        // install a wider-capability edition without losing
+                        // their downloaded weights.
+                        if (finishedFile.exists() && !sdxlFile.exists() &&
+                            !animaFile.exists() && !npuCustomFile.exists() &&
+                            File(dir, "unet.mnn").isFile &&
+                            File(dir, "clip_v2.mnn").isFile
+                        ) {
+                            customModels.add(createCustomModel(dir, isNpu = false))
+                        } else {
+                            Log.i(
+                                "ModelRepository",
+                                "Preserving but hiding incompatible custom model '$modelId'",
+                            )
+                        }
+                    }
                     zImageFile.exists() && DitEngine.isSupportedDevice() ->
                         customModels.add(createCustomModel(dir, isNpu = true, ditKind = "zimage"))
 
