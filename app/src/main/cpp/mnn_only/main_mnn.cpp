@@ -261,9 +261,15 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
       }
       input->mnn_use_gpu_image = input->use_opencl && gpu_profile == "image";
       input->mnn_sequential_cfg = input->use_opencl && gpu_profile == "lowmem";
-      QNN_INFO("MNN GPU profile: %s, size=%dx%d, OpenCL=%d",
-               gpu_profile.c_str(), input->width, input->height,
-               input->use_opencl ? 1 : 0);
+      const std::string gpu_tuning =
+          body.value("mnn_gpu_tuning", std::string("fast"));
+      if (gpu_tuning != "fast" && gpu_tuning != "normal") {
+        throw std::invalid_argument("Unsupported MNN GPU tuning policy");
+      }
+      input->mnn_tuning_normal = input->use_opencl && gpu_tuning == "normal";
+      QNN_INFO("MNN GPU profile=%s tuning=%s size=%dx%d OpenCL=%d",
+               gpu_profile.c_str(), gpu_tuning.c_str(), input->width,
+               input->height, input->use_opencl ? 1 : 0);
       // Reject malformed work before allocating GPU/CPU tensors. Preserve
       // the upstream UI's 1..50-step boundary and disallow NaN/infinity.
       if (input->steps < 1 || input->steps > 50 ||
