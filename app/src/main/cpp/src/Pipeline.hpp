@@ -189,6 +189,9 @@ class Pipeline {
   virtual std::pair<long long, long long> unetOpenClCacheFileBytes() const {
     return {-1LL, -1LL};
   }
+  // Optional per-request totals for the two serial low-memory CFG passes.
+  // Inclusive of tensor transfers/synchronization; not GPU-only kernel time.
+  virtual std::pair<int, int> cfgHalfTimesMs() const { return {-1, -1}; }
   // Anima runs the same fixed-1024 graphs as SDXL but isn't an SDXL pipeline;
   // the request parser uses this to force the 1024 canvas.
   virtual bool isAnima() const { return false; }
@@ -962,6 +965,10 @@ inline GenerationResult Pipeline::generate(
     int unet_setup_time_ms = -1;
     int denoise_loop_time_ms = -1;
     int vae_decode_time_ms = -1;
+    std::vector<int> unet_step_times_ms;
+    int unet_call_total_ms = 0;
+    int scheduler_step_total_ms = 0;
+    std::pair<int, int> cfg_half_times_ms{-1, -1};
     int total_run_steps = req.steps + (req.img2img ? 1 : 0) + 2;
     int current_step = 0;
     const int batch_size = 2;
@@ -1131,6 +1138,7 @@ inline GenerationResult Pipeline::generate(
 
       const bool skip_uncond = canSkipUncond() && (req.cfg == 1.0f);
 
+      const auto unet_call_start = std::chrono::steady_clock::now();
       xt::xarray<float> noise_pred;
       if (unet_tiled) {
         noise_pred =
@@ -1159,6 +1167,13 @@ inline GenerationResult Pipeline::generate(
           noise_pred = xt::eval(uncond + req.cfg * (txt - uncond));
         }
       }
+
+      const auto unet_call_elapsed = std::chrono::duration_cast<
+          std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                     unet_call_start).count();
+      const int call_ms = static_cast<int>(unet_call_elapsed);
+      unet_step_times_ms.push_back(call_ms);
+      unet_call_total_ms += call_ms;
 
       // Numerical integrity gate: a driver/backend returning NaN/Inf must
       // never be reported as a successful generated image. This is not a
@@ -1227,7 +1242,11 @@ inline GenerationResult Pipeline::generate(
         }
       }
 
+      const auto scheduler_step_start = std::chrono::steady_clock::now();
       latents = scheduler->step(noise_pred, timesteps(i), latents).prev_sample;
+      scheduler_step_total_ms += static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::steady_clock::now() - scheduler_step_start).count());
 
       // Ultrafix low-frequency skip residual: pull only the LOW-frequency
       // band of the latent back toward the inversion trajectory, leaving
@@ -1277,6 +1296,7 @@ inline GenerationResult Pipeline::generate(
     progress_callback(current_step, total_run_steps, "");
 
     denoise_loop_time_ms = static_cast<int>(elapsedMs(denoise_loop_start));
+    cfg_half_times_ms = cfgHalfTimesMs();
     endDenoise();
 
     // --- VAE Decode ---
@@ -1364,7 +1384,12 @@ inline GenerationResult Pipeline::generate(
                             clip_time_ms,
                             unet_setup_time_ms,
                             denoise_loop_time_ms,
-                            vae_decode_time_ms};
+                            vae_decode_time_ms,
+                            std::move(unet_step_times_ms),
+                            unet_call_total_ms,
+                            scheduler_step_total_ms,
+                            cfg_half_times_ms.first,
+                            cfg_half_times_ms.second};
   } catch (const std::exception &e) {
     QNN_ERROR("Image generation error: %s", e.what());
     throw;
