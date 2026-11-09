@@ -303,11 +303,19 @@ class PipelineSd15Cpu : public Pipeline {
     opts.num_threads = cpu_threads_;
     if (req.use_opencl) {
       auto cache_dir = ensureCacheDir(model_dir_);
-      if (!cache_dir.empty())
+      if (!cache_dir.empty()) {
+        // Keep model/geometry, GPU storage mode AND CFG activation batch
+        // separated: an OpenCL tuned cache for batch=2 must not be reused by
+        // the serial-CFG UNet session with batch=1.
+        const std::string profile_suffix = req.mnn_use_gpu_image
+            ? "_img"
+            : (req.mnn_sequential_cfg && std::string(stage) == "unet_cache"
+                   ? "_serial_cfg" : "");
         opts.cache_file =
-            cache_dir + "/" + stage + (req.mnn_use_gpu_image ? "_img" : "") +
+            cache_dir + "/" + stage + profile_suffix +
             ".mnnc." + std::to_string(req.width) +
             (req.height == req.width ? "" : "x" + std::to_string(req.height));
+      }
     }
     return opts;
   }
