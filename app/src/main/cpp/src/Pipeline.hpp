@@ -184,6 +184,11 @@ class Pipeline {
   virtual bool supportsImg2Img() const = 0;
   virtual bool supportsReferenceEditing() const { return false; }
   bool isSdxl() const { return sdxl_; }
+  // Passive OpenCL cache-file observations for performance diagnosis.
+  // Presence DOES NOT imply MNN validated the cache or achieved a cache hit.
+  virtual std::pair<long long, long long> unetOpenClCacheFileBytes() const {
+    return {-1LL, -1LL};
+  }
   // Anima runs the same fixed-1024 graphs as SDXL but isn't an SDXL pipeline;
   // the request parser uses this to force the 1024 canvas.
   virtual bool isAnima() const { return false; }
