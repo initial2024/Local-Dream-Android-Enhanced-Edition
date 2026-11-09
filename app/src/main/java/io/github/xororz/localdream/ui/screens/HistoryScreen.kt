@@ -110,6 +110,30 @@ fun HistoryScreen(navController: NavController) {
     var showShareDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
+    fun openHistoricalModel(item: HistoryItem, runImmediately: Boolean) {
+        scope.launch {
+            modelRepository.ensureLoaded()
+            val installed = modelRepository.models.firstOrNull { it.id == item.modelId }
+            if (installed?.isDownloaded == true) {
+                navController.navigate(
+                    Screen.ModelRun.createRoute(
+                        modelId = item.modelId,
+                        historyId = item.id,
+                        replayNow = runImmediately,
+                    ),
+                )
+                showParamsDialog = false
+                previewItem = null
+            } else {
+                Toast.makeText(
+                    context,
+                    "原模型未安装或当前设备不支持；请先安装原模型。",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     Scaffold(
@@ -301,30 +325,11 @@ fun HistoryScreen(navController: NavController) {
                     showShareDialog = true
                 },
                 onSendToImg2img = {},
-                onReproduce = {
-                    showParamsDialog = false
-                    scope.launch {
-                        modelRepository.ensureLoaded()
-                        val localModel = modelRepository.models.firstOrNull {
-                            it.id == item.modelId
-                        }
-                        if (localModel?.isDownloaded == true) {
-                            navController.navigate(
-                                Screen.ModelRun.createRoute(
-                                    modelId = item.modelId,
-                                    historyId = item.id,
-                                ),
-                            )
-                            previewItem = null
-                        } else {
-                            Toast.makeText(
-                                context,
-                                "模型未安装或当前设备不支持；请先选择可运行的模型。",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    }
-                },                onDismiss = { showParamsDialog = false },
+                onReproduce = { openHistoricalModel(item, runImmediately = false) },
+                onQuickReplay = {
+                    openHistoricalModel(item, runImmediately = true)
+                },
+                onDismiss = { showParamsDialog = false },
             )
         }
 
