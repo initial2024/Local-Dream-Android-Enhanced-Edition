@@ -92,6 +92,9 @@ object InferenceDiagnostics {
             put("battery_temp_before_tenths_C", started.batteryTenthsC)
             put("battery_temp_after_tenths_C", finished.batteryTenthsC)
             put("success", success)
+            // Success means the inference pipeline returned; it is NOT an
+            // assessment of image semantics or an image-quality guarantee.
+            put("image_quality_verified", false)
         }.toString()
         val file = reportFile(context)
         val tail = if (file.isFile) file.readLines().takeLast(19) else emptyList()
@@ -105,6 +108,8 @@ object InferenceDiagnostics {
                 "System RAM is not GPU allocation; denoise_loop_ms includes scheduler/CPU work.\n" +
                 "first_progress_ms is not first UNet inference; native times are server-side.\n" +
                 "Thermal status 0..6, -1=unknown.\n" +
+                "success means server completed, NOT verified image quality.\n" +
+                "image_quality_verified=false until an on-device reference test.\n" +
                 "No prompts, seeds or image contents are included.\n" +
                 file.readText()
         } else {

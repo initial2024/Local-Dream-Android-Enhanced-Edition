@@ -30,6 +30,12 @@ jobs:
           submodules: false
           fetch-depth: 1
 
+      - name: Gate 0 — protect known-good lowmem input ordering
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 enhanced/check_lowmem_quality_contract.py
+
       - name: Checkout only open-source dependencies used by MNN native build
         shell: bash
         run: |
