@@ -291,6 +291,12 @@ class BackgroundGenerationService : Service() {
         // preparation and first denoising step. It is separate from the total
         // request time, and never stores prompts or private image content.
         var firstProgressMs: Long? = null
+        var nativeTotalMs: Long? = null
+        var nativeFirstUnetStepMs: Long? = null
+        var nativeClipMs: Long? = null
+        var nativeUnetSetupMs: Long? = null
+        var nativeDenoiseMs: Long? = null
+        var nativeVaeMs: Long? = null
         val isLocalMnn = BuildConfig.MNN_ONLY_NATIVE && backendHost == LOCAL_BACKEND_HOST
         val beforeSample = if (isLocalMnn) {
             runCatching { InferenceDiagnostics.sample(applicationContext) }.getOrNull()
@@ -325,6 +331,12 @@ class BackgroundGenerationService : Service() {
                     started = start,
                     finished = InferenceDiagnostics.sample(applicationContext),
                     success = success,
+                    nativeTotalMs = nativeTotalMs,
+                    nativeFirstUnetStepMs = nativeFirstUnetStepMs,
+                    clipTimeMs = nativeClipMs,
+                    unetSetupTimeMs = nativeUnetSetupMs,
+                    denoiseLoopTimeMs = nativeDenoiseMs,
+                    vaeDecodeTimeMs = nativeVaeMs,
                 )
             }.onFailure { Log.w("InferenceMetrics", "Unable to write diagnostics", it) }
         }
@@ -480,6 +492,16 @@ class BackgroundGenerationService : Service() {
                                         "JSONObject parsing took: ${jsonParseTime}ms, data length: ${data.length}",
                                     )
                                     val completeStartTime = System.currentTimeMillis()
+                                    if (isLocalMnn) {
+                                        fun JSONObject.nonNegativeMetric(key: String): Long? =
+                                            optLong(key, -1L).takeIf { it >= 0L }
+                                        nativeTotalMs = message.nonNegativeMetric("generation_time_ms")
+                                        nativeFirstUnetStepMs = message.nonNegativeMetric("first_step_time_ms")
+                                        nativeClipMs = message.nonNegativeMetric("clip_time_ms")
+                                        nativeUnetSetupMs = message.nonNegativeMetric("unet_setup_time_ms")
+                                        nativeDenoiseMs = message.nonNegativeMetric("denoise_loop_time_ms")
+                                        nativeVaeMs = message.nonNegativeMetric("vae_decode_time_ms")
+                                    }
 
                                     // 1. Extract fields from JSON
                                     val extractStart = System.currentTimeMillis()
