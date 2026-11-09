@@ -312,6 +312,10 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
                   {"channels", result.channels},
                   {"generation_time_ms", result.generation_time_ms},
                   {"first_step_time_ms", result.first_step_time_ms},
+                  {"clip_time_ms", result.clip_time_ms},
+                  {"unet_setup_time_ms", result.unet_setup_time_ms},
+                  {"denoise_loop_time_ms", result.denoise_loop_time_ms},
+                  {"vae_decode_time_ms", result.vae_decode_time_ms},
               };
               const std::string wire =
                   "event: complete\ndata: " + completed.dump() + "\n\n";
