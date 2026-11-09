@@ -315,11 +315,12 @@ class BackgroundGenerationService : Service() {
                 MnnGpuProfile.LOW_MEMORY
             } else MnnGpuProfile.effective(requestedProfile, width, height)
         } else "cpu"
-        val effectiveTuning = if (isLocalMnn && useOpenCL) {
-            MnnGpuTuning.validated(
-                runtimePrefs.getString(MnnGpuTuning.PREF_KEY, MnnGpuTuning.FAST),
-            )
-        } else "cpu"
+        // Disable the 6m22s NORMAL tuning regression on Mali even when the
+        // user's old alpha.7 preferences still store "normal".
+        val effectiveTuning = if (isLocalMnn && useOpenCL) MnnGpuTuning.FAST else "cpu"
+        if (isLocalMnn && runtimePrefs.contains(MnnGpuTuning.PREF_KEY)) {
+            runtimePrefs.edit().remove(MnnGpuTuning.PREF_KEY).apply()
+        }
 
         fun saveDiagnostic(success: Boolean) {
             val start = beforeSample ?: return

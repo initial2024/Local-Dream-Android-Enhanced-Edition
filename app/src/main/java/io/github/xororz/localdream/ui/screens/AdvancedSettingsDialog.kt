@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import io.github.xororz.localdream.R
 import io.github.xororz.localdream.data.MnnNativeResolution
 import io.github.xororz.localdream.data.MnnGpuProfile
-import io.github.xororz.localdream.data.MnnGpuTuning
 import io.github.xororz.localdream.data.Resolution
 import kotlin.math.roundToInt
 
@@ -71,7 +70,6 @@ internal fun AdvancedSettingsDialog(
     showMnnCpuThreads: Boolean = false,
     showMnnGpuProfile: Boolean = false,
     gpuProfile: String = MnnGpuProfile.AUTO,
-    gpuTuning: String = MnnGpuTuning.FAST,
     showMnnNativeHd: Boolean = false,
     cpuThreads: Int = 4,
     batchCounts: Int,
@@ -92,7 +90,6 @@ internal fun AdvancedSettingsDialog(
     onGpuSelected: () -> Unit,
     onCpuThreadsChange: (Int) -> Unit = {},
     onGpuProfileChange: (String) -> Unit = {},
-    onGpuTuningChange: (String) -> Unit = {},
     onCopyInferenceReport: () -> Unit = {},
     onBatchCountsChange: (Float) -> Unit,
     onDenoiseStrengthChange: (Float) -> Unit,
@@ -503,33 +500,10 @@ internal fun AdvancedSettingsDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // NORMAL caused a large regression on a real Mali device.
+                        // Do not show an attractive but unusable speed toggle.
                         Text(
-                            stringResource(R.string.enhanced_mnn_gpu_tuning_title),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            listOf(
-                                MnnGpuTuning.FAST to R.string.enhanced_mnn_gpu_tuning_fast,
-                                MnnGpuTuning.NORMAL to R.string.enhanced_mnn_gpu_tuning_normal,
-                            ).forEach { (tuning, label) ->
-                                ToggleButton(
-                                    checked = gpuTuning == tuning,
-                                    enabled = !isRunning,
-                                    onCheckedChange = { checked ->
-                                        if (checked) onGpuTuningChange(tuning)
-                                    },
-                                ) {
-                                    Text(stringResource(label))
-                                }
-                            }
-                        }
-                        Text(
-                            stringResource(R.string.enhanced_mnn_gpu_tuning_hint),
+                            stringResource(R.string.enhanced_mnn_gpu_tuning_retired),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

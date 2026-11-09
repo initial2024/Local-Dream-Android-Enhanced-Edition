@@ -263,10 +263,11 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
       input->mnn_sequential_cfg = input->use_opencl && gpu_profile == "lowmem";
       const std::string gpu_tuning =
           body.value("mnn_gpu_tuning", std::string("fast"));
-      if (gpu_tuning != "fast" && gpu_tuning != "normal") {
-        throw std::invalid_argument("Unsupported MNN GPU tuning policy");
+      // The previously optional NORMAL caused 2.41x slower full generation
+      // on real Mali OpenCL. Reject it even for direct local server calls.
+      if (gpu_tuning != "fast") {
+        throw std::invalid_argument("MNN GPU tuning policy disabled: use fast");
       }
-      input->mnn_tuning_normal = input->use_opencl && gpu_tuning == "normal";
       QNN_INFO("MNN GPU profile=%s tuning=%s size=%dx%d OpenCL=%d",
                gpu_profile.c_str(), gpu_tuning.c_str(), input->width,
                input->height, input->use_opencl ? 1 : 0);

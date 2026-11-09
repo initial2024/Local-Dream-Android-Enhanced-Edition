@@ -559,4 +559,5 @@
     <string name="enhanced_mnn_gpu_tuning_fast">快速（原版）</string>
     <string name="enhanced_mnn_gpu_tuning_normal">标准（实验）</string>
     <string name="enhanced_mnn_gpu_tuning_hint">快速保留原本较短的初始化路径。标准会尝试更多 OpenCL 工作组组合，首次初始化可能更慢，但后续去噪可能更快。独立缓存；请用完全相同参数对比至少三次热机运行，不保证加速。</string>
+    <string name="enhanced_mnn_gpu_tuning_retired">OpenCL 内核调优已固定为“快速”。真机测试发现“标准”模式严重变慢，现已停用，并自动清除旧设置。</string>
 </resources>
