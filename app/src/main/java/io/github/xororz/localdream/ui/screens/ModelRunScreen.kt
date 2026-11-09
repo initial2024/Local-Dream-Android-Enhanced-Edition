@@ -146,6 +146,7 @@ import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
 import io.github.xororz.localdream.data.ModelRepository
 import io.github.xororz.localdream.data.MnnCpuThreads
+import io.github.xororz.localdream.data.MnnGpuProfile
 import io.github.xororz.localdream.data.MnnNativeResolution
 import io.github.xororz.localdream.data.ModelStorage
 import io.github.xororz.localdream.data.PatchScanner
@@ -453,6 +454,15 @@ fun ModelRunScreen(
         mutableIntStateOf(
             MnnCpuThreads.validated(
                 preferences.getInt(MnnCpuThreads.PREF_KEY, MnnCpuThreads.DEFAULT),
+            ),
+        )
+    }
+    // The GPU profile is a per-install preference and affects the next
+    // generation request (no backend restart and no screen layout change).
+    var mnnGpuProfile by remember {
+        mutableStateOf(
+            MnnGpuProfile.validated(
+                preferences.getString(MnnGpuProfile.PREF_KEY, MnnGpuProfile.AUTO),
             ),
         )
     }
@@ -2118,6 +2128,8 @@ fun ModelRunScreen(
                                     cfg = cfg,
                                     useOpenCL = useOpenCL,
                                     showMnnCpuThreads = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
+                                    showMnnGpuProfile = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
+                                    gpuProfile = mnnGpuProfile,
                                     showMnnNativeHd = BuildConfig.MNN_ONLY_NATIVE && !isRemote &&
                                         model?.runOnCpu == true && model?.usesFixedCanvas != true,
                                     cpuThreads = mnnCpuThreads,
@@ -2160,6 +2172,15 @@ fun ModelRunScreen(
                                         saveAllFields()
                                     },
                                     onGpuSelected = { showOpenCLWarningDialog = true },
+                                    onGpuProfileChange = { requested ->
+                                        if (!isRunning) {
+                                            mnnGpuProfile = MnnGpuProfile.validated(requested)
+                                            preferences.edit().putString(
+                                                MnnGpuProfile.PREF_KEY,
+                                                mnnGpuProfile,
+                                            ).apply()
+                                        }
+                                    },
                                     onCpuThreadsChange = { requested ->
                                         if (!isRunning) {
                                             mnnCpuThreads = MnnCpuThreads.validated(requested)
