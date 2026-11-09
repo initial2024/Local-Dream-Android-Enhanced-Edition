@@ -37,6 +37,40 @@
 - Alpha.6 actual phone observation (NOT an alpha.7 speed test): 640×640 / 20 steps / lowmem GPU, wall 181337 ms; available system RAM 2579→1803 MiB, thermal 0→0, battery 29.4→31.3°C. These measurements do not prove a memory leak or thermal throttling.
 - Keep APK package and signing certificate unchanged; reject a build with a stale pinned alpha.6 native `.so`. Compare images with same full generation settings and installed model revision, recognizing model hashes and engine revision are not preserved in legacy history.
 
+## Alpha.8 quality regression / alpha.9 recovery gate (2026-11-09)
+
+**Known broken:** alpha.8 reported `success=true` and a faster 132756ms wall time for
+Absolute Reality, 640×640, DPM++ 2M, 20 steps, CFG7, seed 418731773,
+`gpu=true`, `profile=lowmem`, `tuning=fast`, but saved a full-frame
+highly saturated multicolor noise image, rather than the correct apple scene.
+Speed on a corrupted image must not be scored as an optimization.
+
+**Evidence-based rollback:** Alpha.8 was compared directly against alpha.7.
+The additional persistent dual-host CFG encoder buffers and once-per-step
+timestep copy are reverted to the alpha.7 order of **negative then positive
+conditioning, complete sample/timestep/encoder transfers per half**. The
+lowmem UNet tuning cache uses a new `_serial_cfg_quality_recovery` namespace
+to prevent reuse of any alpha.8 optimization metadata. FAST remains forced.
+
+**Numerical gate:** Reject non-finite GPU UNet/VAE float values before emitting
+a complete image. This does not catch all visually corrupt but finite images,
+so `success` and `image_quality_verified` are distinct metrics. The static
+CI lowmem-order regression test is NOT a substitute for an Android image test.
+
+**Required device regression (must pass before any speed claim):**
+1. Cover-install alpha.9 over alpha.8 without wiping existing models/history.
+2. First cold run: Absolute Reality, exactly the above parameters, 640×640 GPU
+   lowmem FAST. Verify the **apple, table and window**, not colored noise.
+3. Open History and reproduce that same output with original settings.
+   Ensure a second result is a recognizable apple; if not, **STOP** and
+   revert to the published alpha.7 APK (same signing cert).
+4. Record 3 warm-run `denoise_loop_ms`, total time and thermal status with
+   comparable device load; compare median to the valid alpha.7 158522ms
+   (not to alpha.8's invalid 132756ms).
+5. If still corrupt on alpha.9, keep original and enhanced model data intact;
+   fall back to alpha.7. Escalate with one new diagnostic JSONL report and a
+   screenshot. Never infer a quality pass from CI success alone.
+
 ## Separate later gates
 - Photo-to-MP4 encoder: verify offline video playback and duration on real Android hardware; it is not an AI video generation model.
 - SDXL MNN, Qwen Image, FLUX or true image-to-video: each requires a separate independently verified backend, format conversion, licensing, memory and output-quality assessment. No support is implied by the initial SD1.5 test APK.
