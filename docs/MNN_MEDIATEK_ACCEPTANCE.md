@@ -105,6 +105,46 @@ Phone acceptance gate before recommending alpha.10 as faster:
 6. No auto-selected batch=2 Buffer at 640px: user previously reported
    whole-phone stalls under concurrent apps. Low-memory remains default.
 
+## Alpha.11 independent deterministic replay / UNet step variance audit
+
+The user explicitly confirmed the two identical PNG files came from
+**separate 640×640 generation runs** (not a duplicated file export).
+The two uploaded files have the same SHA256 and pixels:
+`02a4249e6909438615f24a373802cc614f05a77776603a98e3f8ef24a31d8666`.
+This establishes **observed same-seed reproducibility** on that device,
+not identical execution timing or GPU frequency.
+
+Two correct alpha.10 runs used the same model/seed/CFG/20 steps/profile:
+- Run A: 140446ms total; UNet setup 5289ms; denoise 130252ms.
+- Run B: 157974ms total; UNet setup 5950ms; denoise 147560ms.
+- UNet cache file existed and stayed 628596 bytes during both runs.
+- System thermal status 0/0 does not prove GPU frequency stability.
+- Most of the 17528ms difference came from the denoise loop, not cache setup.
+
+Alpha.11 **does not change** kernel tuning, CFG input copies, GPU
+precision, model weights, scheduler equations, or native cache namespace.
+It only measures elapsed time for each 20-step UNet call (including tensor
+uploads, GPU inference, output synchronization and CPU tensor handling),
+plus scheduler.step time and separate lowmem negative/positive branches.
+A 20-element `unet_step_times_ms` array and early/late medians can
+distinguish a single anomalously slow step from a whole-run slowdown.
+These timings are **NOT isolated GPU kernel times**.
+
+Acceptance:
+1. Cover-install with fixed signing cert; do not delete installed model/history.
+2. Two independent TXT2IMG generations using the exact same saved apple
+   settings must still produce visually normal images; compare file SHA256.
+3. Collect the per-step arrays and `cfg_uncond_total_ms` vs
+   `cfg_positive_total_ms` from the private report. Confirm the count
+   matches the steps actually run (20 for this TXT2IMG reference).
+4. Compare cold/warm runs without concurrent heavy apps; then separately
+   test while GPT is active. Record Android thermal and system RAM but do
+   not conflate either with actual Mali GPU clocks or GPU allocation.
+5. If visual output differs or returns chromatic noise, STOP; reject this
+   version even if nominal timing improves.
+6. Do not claim a speed gain from additional profiling. Only
+   repeated, valid outputs and warm median timings can establish it.
+
 ## Separate later gates
 - Photo-to-MP4 encoder: verify offline video playback and duration on real Android hardware; it is not an AI video generation model.
 - SDXL MNN, Qwen Image, FLUX or true image-to-video: each requires a separate independently verified backend, format conversion, licensing, memory and output-quality assessment. No support is implied by the initial SD1.5 test APK.

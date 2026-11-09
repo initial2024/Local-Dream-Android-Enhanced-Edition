@@ -44,6 +44,26 @@ for token in (
         raise SystemExit(f"SAFE GPU CACHE REGRESSION: missing session/cache guard: {token}")
 if source.index("Session_Release") > source.index("Session_Resize_Defer"):
     raise SystemExit("SAFE GPU CACHE REGRESSION: release mode must be set first")
+pipeline = Path("app/src/main/cpp/src/Pipeline.hpp").read_text(encoding="utf-8")
+service = Path("app/src/main/java/io/github/xororz/localdream/service/BackgroundGenerationService.kt").read_text(encoding="utf-8")
+for token in (
+    "unet_step_times_ms.push_back(call_ms);",
+    "cfg_half_times_ms = cfgHalfTimesMs();",
+    "scheduler_step_total_ms +=",
+):
+    if token not in pipeline:
+        raise SystemExit(f"UNET TIMING REGRESSION: missing pipeline field {token}")
+for token in (
+    "cfg_negative_total_ms_ += pass_ms",
+    "cfg_positive_total_ms_ += pass_ms",
+    "run_half(0, cond.negHidden());",
+    "run_half(1, cond.posHidden());",
+):
+    if token not in source:
+        raise SystemExit(f"UNET TIMING REGRESSION: missing pass evidence {token}")
+if "nativeUnetStepTimesMs" not in service:
+    raise SystemExit("UNET TIMING REGRESSION: Android diagnostic collection absent")
+print("PASS: read-only UNet step and CFG split timings wired; math inputs unchanged")
 print("PASS: release-mode session and cache-file presence diagnostics wired")
 print("PASS: alpha.7 lowmem input sequencing restored; separate tuning cache")
 print("NOTE: real device same-seed image comparison is still required")

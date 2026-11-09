@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
@@ -67,6 +68,11 @@ object InferenceDiagnostics {
         vaeDecodeTimeMs: Long? = null,
         unetCacheFileBeforeBytes: Long? = null,
         unetCacheFileAfterBytes: Long? = null,
+        unetStepTimesMs: LongArray? = null,
+        unetCallTotalMs: Long? = null,
+        schedulerStepTotalMs: Long? = null,
+        cfgUncondTotalMs: Long? = null,
+        cfgPositiveTotalMs: Long? = null,
     ) {
         val line = JSONObject().apply {
             put("at", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()))
@@ -87,6 +93,19 @@ object InferenceDiagnostics {
             put("vae_decode_ms", vaeDecodeTimeMs ?: -1L)
             put("unet_cache_file_before_bytes", unetCacheFileBeforeBytes ?: -1L)
             put("unet_cache_file_after_bytes", unetCacheFileAfterBytes ?: -1L)
+            put("unet_call_total_ms", unetCallTotalMs ?: -1L)
+            put("scheduler_step_total_ms", schedulerStepTotalMs ?: -1L)
+            put("cfg_uncond_total_ms", cfgUncondTotalMs ?: -1L)
+            put("cfg_positive_total_ms", cfgPositiveTotalMs ?: -1L)
+            val stats = MnnStepTimingStats.summarize(unetStepTimesMs)
+            if (stats != null && unetStepTimesMs != null) {
+                put("unet_step_times_ms", JSONArray(unetStepTimesMs.toList()))
+                put("unet_step_min_ms", stats.minimumMs)
+                put("unet_step_median_ms", stats.medianMs)
+                put("unet_step_max_ms", stats.maximumMs)
+                put("unet_first_five_median_ms", stats.firstFiveMedianMs)
+                put("unet_last_five_median_ms", stats.lastFiveMedianMs)
+            }
             put("ram_before_MiB", started.availableRamMiB)
             put("ram_after_MiB", finished.availableRamMiB)
             put("low_ram_before", started.lowMemory)
@@ -112,6 +131,8 @@ object InferenceDiagnostics {
                 "System RAM is not GPU allocation; denoise_loop_ms includes scheduler/CPU work.\n" +
                 "first_progress_ms is not first UNet inference; native times are server-side.\n" +
                 "unet_cache_file_*_bytes indicates file presence/size, not a confirmed cache hit.\n" +
+                "unet_step_times_ms includes GPU host transfers and sync, not kernel-only time.\n" +
+                "cfg_uncond/positive_total_ms includes whole MNN pass; speed variation alone does not prove DVFS/thermal throttle.\n" +
                 "Thermal status 0..6, -1=unknown.\n" +
                 "success means server completed, NOT verified image quality.\n" +
                 "image_quality_verified=false until an on-device reference test.\n" +
