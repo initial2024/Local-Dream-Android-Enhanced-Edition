@@ -38,6 +38,14 @@ struct GenerationResult {
   int unet_setup_time_ms = -1;
   int denoise_loop_time_ms = -1;
   int vae_decode_time_ms = -1;
+  // Each step records a full, synchronized UNet call including input and
+  // output tensor copies; these values are NOT isolated GPU-kernel times.
+  // No prompt, seed or image bytes are exposed in performance diagnostics.
+  std::vector<int> unet_step_times_ms;
+  int unet_call_total_ms = -1;
+  int scheduler_step_total_ms = -1;
+  int cfg_uncond_total_ms = -1;
+  int cfg_positive_total_ms = -1;
 };
 
 inline std::string base64_encode(const std::string &in) {
