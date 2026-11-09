@@ -946,6 +946,10 @@ inline GenerationResult Pipeline::generate(
   try {
     auto start_time = std::chrono::high_resolution_clock::now();
     int first_step_time_ms = 0;
+    int clip_time_ms = -1;
+    int unet_setup_time_ms = -1;
+    int denoise_loop_time_ms = -1;
+    int vae_decode_time_ms = -1;
     int total_run_steps = req.steps + (req.img2img ? 1 : 0) + 2;
     int current_step = 0;
     const int batch_size = 2;
@@ -953,7 +957,8 @@ inline GenerationResult Pipeline::generate(
     // --- CLIP ---
     auto clip_start = std::chrono::high_resolution_clock::now();
     Conditioning cond = encodePrompts(req);
-    std::cout << "CLIP dur: " << elapsedMs(clip_start) << "ms\n";
+    clip_time_ms = static_cast<int>(elapsedMs(clip_start));
+    std::cout << "CLIP dur: " << clip_time_ms << "ms\n";
     current_step++;
     progress_callback(current_step, total_run_steps, "");
 
@@ -1081,7 +1086,20 @@ inline GenerationResult Pipeline::generate(
                 << std::endl;
     }
 
+    auto unet_setup_start = std::chrono::high_resolution_clock::now();
     beginDenoise(req);
+    unet_setup_time_ms = static_cast<int>(elapsedMs(unet_setup_start));
+    auto denoise_loop_start = std::chrono::high_resolution_clock::now();
+
+    // Reuse fixed-size host allocations for the full denoising loop rather
+    // than reallocating CFG inputs and outputs on every diffusion step.
+    // The underlying xarray scheduler and inference math are unchanged.
+    std::vector<float> latents_in_vec;
+    std::vector<float> unet_out_latents;
+    if (!unet_tiled) {
+      latents_in_vec.resize(batch_size * single_latent_size);
+      unet_out_latents.resize(batch_size * single_latent_size);
+    }
 
     for (int i = start_step; i < (int)timesteps.size(); ++i) {
       if (req.show_diffusion_process && previewSupported() &&
@@ -1107,13 +1125,10 @@ inline GenerationResult Pipeline::generate(
             runUnetTiled(req, latents_scaled, static_cast<int>(current_ts),
                          skip_uncond, cond);
       } else {
-        std::vector<float> latents_in_vec;
-        latents_in_vec.reserve(batch_size * single_latent_size);
-        latents_in_vec.insert(latents_in_vec.end(), latents_scaled.begin(),
-                              latents_scaled.end());
-        latents_in_vec.insert(latents_in_vec.end(), latents_scaled.begin(),
-                              latents_scaled.end());
-        std::vector<float> unet_out_latents(batch_size * single_latent_size);
+        std::copy(latents_scaled.begin(), latents_scaled.end(),
+                  latents_in_vec.begin());
+        std::copy(latents_scaled.begin(), latents_scaled.end(),
+                  latents_in_vec.begin() + single_latent_size);
 
         runUnetStep(req, latents_in_vec.data(), current_ts, skip_uncond, cond,
                     unet_out_latents.data());
@@ -1237,6 +1252,7 @@ inline GenerationResult Pipeline::generate(
     // last slot through the whole VAE decode and then jumps straight to done.
     progress_callback(current_step, total_run_steps, "");
 
+    denoise_loop_time_ms = static_cast<int>(elapsedMs(denoise_loop_start));
     endDenoise();
 
     // --- VAE Decode ---
@@ -1250,7 +1266,8 @@ inline GenerationResult Pipeline::generate(
     latentsToVae(latents);
     xt::xarray<float> pixels = decodeToPixels(req, latents, /*verbose=*/true);
 
-    std::cout << "VAE Dec dur: " << elapsedMs(vae_dec_start) << "ms\n";
+    vae_decode_time_ms = static_cast<int>(elapsedMs(vae_dec_start));
+    std::cout << "VAE Dec dur: " << vae_decode_time_ms << "ms\n";
 
     // --- Post-process Image ---
     // Laplacian-blend the decoded image against the original only when the
@@ -1319,7 +1336,11 @@ inline GenerationResult Pipeline::generate(
                             final_height,
                             3,
                             static_cast<int>(total_time),
-                            first_step_time_ms};
+                            first_step_time_ms,
+                            clip_time_ms,
+                            unet_setup_time_ms,
+                            denoise_loop_time_ms,
+                            vae_decode_time_ms};
   } catch (const std::exception &e) {
     QNN_ERROR("Image generation error: %s", e.what());
     throw;
