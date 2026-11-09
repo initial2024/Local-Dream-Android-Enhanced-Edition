@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +42,7 @@ fun GenerationParamsDialog(
     onShare: () -> Unit,
     onSendToImg2img: () -> Unit,
     onReproduce: () -> Unit,
+    onQuickReplay: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -67,6 +70,21 @@ fun GenerationParamsDialog(
                     .padding(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                // A primary, visible action on the FIRST screen of the
+                // parameter sheet, not behind another "restore" dialog.
+                // Only text-to-image carries enough stored data for replay.
+                if (onQuickReplay != null &&
+                    (displayMode ?: params.mode) == GenerationMode.TXT2IMG
+                ) {
+                    Button(
+                        onClick = onQuickReplay,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.enhanced_reproduce_generate_now))
+                    }
+                }
                 Column {
                     Text(
                         stringResource(R.string.basic_params),
