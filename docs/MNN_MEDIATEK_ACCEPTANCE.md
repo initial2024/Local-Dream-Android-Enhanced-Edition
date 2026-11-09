@@ -26,6 +26,17 @@
 - Select defaults only after confirming an actual advantage and adequate thermal stability. Faster one-off results are insufficient.
 - During high thermal throttling, OOM, repeated GPU driver failure, wrong certificate, corrupted images or unintended data deletion: **STOP** the rollout and retain the original v2.8.1 app.
 
+## Alpha.7 focused acceptance: visible replay + true inference breakdown
+
+- Historical TXT2IMG apple image: open **History → image → info / Generation parameters**. The primary visible button must read **“一键复刻原模型并生成”**. The secondary option is **“复用参数”**, not “复制”.
+- One click must restore the original installed model ID, both prompts, exact seed, DPM++ 2M scheduler, CFG 7, 20 steps, 640×640 native canvas, and CPU/GPU selection; it must start exactly one foreground generation after the correct backend is ready. No implicit fallback to 512×512.
+- Verify cases: historical model removed, seed missing, missing/incompatible model, img2img/inpaint/UltraFix, previous generation still active, and navigation back during backend init. These must not accidentally launch a new generation.
+- For repeatable performance, run 640×640 GPU lowmem 20 steps three times without other heavy apps; then compare controlled warm Buffer and experimental Image modes **only if phone remains responsive**. An image appearing is not proof of a speed gain.
+- In Advanced Settings, compare OpenCL tuning **Fast (original)** versus **Normal (experimental)** while retaining the same GPU memory profile. Normal uses a separately keyed per-shape cache; cold runs can take longer, and only repeated warm median times establish an improvement. The report records the effective `tuning` value. This follows [MNN official Session API guidance](https://github.com/alibaba/MNN/blob/master/docs/inference/session.md); it is not yet a verified speedup on this Mali GPU.
+- Copy the app's latest 20-record JSONL report. Alpha.7 adds `clip_ms`, `unet_setup_ms`, `denoise_loop_ms`, `vae_decode_ms`, `native_first_unet_step_ms` and `native_generation_ms`. The denoise loop includes scheduler and CPU overhead, not isolated GPU kernel time. `first_progress_ms` is an SSE progress milestone, not first UNet execution.
+- Alpha.6 actual phone observation (NOT an alpha.7 speed test): 640×640 / 20 steps / lowmem GPU, wall 181337 ms; available system RAM 2579→1803 MiB, thermal 0→0, battery 29.4→31.3°C. These measurements do not prove a memory leak or thermal throttling.
+- Keep APK package and signing certificate unchanged; reject a build with a stale pinned alpha.6 native `.so`. Compare images with same full generation settings and installed model revision, recognizing model hashes and engine revision are not preserved in legacy history.
+
 ## Separate later gates
 - Photo-to-MP4 encoder: verify offline video playback and duration on real Android hardware; it is not an AI video generation model.
 - SDXL MNN, Qwen Image, FLUX or true image-to-video: each requires a separate independently verified backend, format conversion, licensing, memory and output-quality assessment. No support is implied by the initial SD1.5 test APK.

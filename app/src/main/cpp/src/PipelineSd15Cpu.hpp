@@ -155,6 +155,15 @@ class PipelineSd15Cpu : public Pipeline {
 
     unet_interpreter_->releaseModel();
 
+    // Tensor addresses remain valid for the lifetime of this resized MNN
+    // session; resolve names once rather than on each of 20-50 denoise steps.
+    unet_sample_device_ = samp;
+    unet_timestep_device_ = ts;
+    unet_encoder_device_ = enc;
+    unet_output_device_ =
+        unet_interpreter_->getSessionOutput(unet_session_, "out_sample");
+    unet_encoder_uploaded_ = false;
+
     // MNN host-side staging tensors are the same shapes for every diffusion
     // step in one run. Allocate once after resize, not three new/delete pairs
     // on every UNet invocation. This changes no numerical operations.
@@ -167,10 +176,9 @@ class PipelineSd15Cpu : public Pipeline {
                    float timestep_f, bool skip_uncond, Conditioning &cond,
                    float *out_batch2) override {
     const int timestep = static_cast<int>(timestep_f);
-    auto samp = unet_interpreter_->getSessionInput(unet_session_, "sample");
-    auto ts = unet_interpreter_->getSessionInput(unet_session_, "timestep");
-    auto enc = unet_interpreter_->getSessionInput(unet_session_,
-                                                  "encoder_hidden_states");
+    auto *samp = unet_sample_device_;
+    auto *ts = unet_timestep_device_;
+    auto *enc = unet_encoder_device_;
 
     auto *samp_nchw_tensor = unet_sample_host_.get();
     auto *ts_nchw_tensor = unet_timestep_host_.get();
@@ -194,9 +202,7 @@ class PipelineSd15Cpu : public Pipeline {
         enc->copyFromHostTensor(enc_nchw_tensor);
         if (unet_interpreter_->runSession(unet_session_) != 0)
           throw std::runtime_error("MNN low-memory UNet execution failed");
-        auto output = unet_interpreter_->getSessionOutput(unet_session_,
-                                                         "out_sample");
-        output->copyToHostTensor(samp_nchw_tensor);
+        unet_output_device_->copyToHostTensor(samp_nchw_tensor);
         memcpy(out_batch2 + half * latent_count,
                samp_nchw_tensor->host<float>(), latent_count * sizeof(float));
       };
@@ -209,21 +215,25 @@ class PipelineSd15Cpu : public Pipeline {
            latents_batch2 + (skip_uncond ? latent_count : 0),
            output_count * sizeof(float));
     memcpy(ts_nchw_tensor->host<int>(), &timestep, sizeof(int));
-    memcpy(enc_nchw_tensor->host<float>(),
-           skip_uncond ? cond.posHidden() : cond.hidden.data(),
-           (skip_uncond ? cond.hidden.size() / 2 : cond.hidden.size()) * sizeof(float));
+    if (!unet_encoder_uploaded_) {
+      // CLIP conditioning is invariant across all timesteps of this request.
+      // Keep it in the MNN input tensor instead of re-uploading it on every
+      // step (for single-pass/batched CFG only; serial CFG swaps the input).
+      memcpy(enc_nchw_tensor->host<float>(),
+             skip_uncond ? cond.posHidden() : cond.hidden.data(),
+             (skip_uncond ? cond.hidden.size() / 2 : cond.hidden.size()) * sizeof(float));
+      enc->copyFromHostTensor(enc_nchw_tensor);
+      unet_encoder_uploaded_ = true;
+    }
 
     samp->copyFromHostTensor(samp_nchw_tensor);
     ts->copyFromHostTensor(ts_nchw_tensor);
-    enc->copyFromHostTensor(enc_nchw_tensor);
 
     // CFG=1 runs only the positive batch.
     if (unet_interpreter_->runSession(unet_session_) != 0)
       throw std::runtime_error("MNN UNet inference failed");
 
-    auto output =
-        unet_interpreter_->getSessionOutput(unet_session_, "out_sample");
-    output->copyToHostTensor(samp_nchw_tensor);
+    unet_output_device_->copyToHostTensor(samp_nchw_tensor);
     memcpy(out_batch2 + (skip_uncond ? latent_count : 0),
            samp_nchw_tensor->host<float>(), output_count * sizeof(float));
 
@@ -236,6 +246,11 @@ class PipelineSd15Cpu : public Pipeline {
     unet_sample_host_.reset();
     unet_timestep_host_.reset();
     unet_encoder_host_.reset();
+    unet_sample_device_ = nullptr;
+    unet_timestep_device_ = nullptr;
+    unet_encoder_device_ = nullptr;
+    unet_output_device_ = nullptr;
+    unet_encoder_uploaded_ = false;
     if (unet_session_) unet_interpreter_->releaseSession(unet_session_);
     unet_session_ = nullptr;
     delete unet_interpreter_;
@@ -300,6 +315,7 @@ class PipelineSd15Cpu : public Pipeline {
     MnnSessionOptions opts;
     opts.use_opencl = req.use_opencl;
     opts.use_gpu_image = req.mnn_use_gpu_image;
+    opts.use_tuning_normal = req.mnn_tuning_normal;
     opts.num_threads = cpu_threads_;
     if (req.use_opencl) {
       auto cache_dir = ensureCacheDir(model_dir_);
@@ -313,6 +329,7 @@ class PipelineSd15Cpu : public Pipeline {
                    ? "_serial_cfg" : "");
         opts.cache_file =
             cache_dir + "/" + stage + profile_suffix +
+            (req.mnn_tuning_normal ? "_tuning_normal" : "") +
             ".mnnc." + std::to_string(req.width) +
             (req.height == req.width ? "" : "x" + std::to_string(req.height));
       }
@@ -331,6 +348,11 @@ class PipelineSd15Cpu : public Pipeline {
   std::unique_ptr<MNN::Tensor> unet_sample_host_;
   std::unique_ptr<MNN::Tensor> unet_timestep_host_;
   std::unique_ptr<MNN::Tensor> unet_encoder_host_;
+  MNN::Tensor *unet_sample_device_ = nullptr;
+  MNN::Tensor *unet_timestep_device_ = nullptr;
+  MNN::Tensor *unet_encoder_device_ = nullptr;
+  MNN::Tensor *unet_output_device_ = nullptr;
+  bool unet_encoder_uploaded_ = false;
 };
 
 #endif  // PIPELINESD15CPU_HPP

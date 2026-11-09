@@ -53,11 +53,18 @@ object InferenceDiagnostics {
         steps: Int,
         opencl: Boolean,
         profile: String,
+        tuning: String,
         elapsedMs: Long,
         firstProgressMs: Long?,
         started: Sample,
         finished: Sample,
         success: Boolean,
+        nativeTotalMs: Long? = null,
+        nativeFirstUnetStepMs: Long? = null,
+        clipTimeMs: Long? = null,
+        unetSetupTimeMs: Long? = null,
+        denoiseLoopTimeMs: Long? = null,
+        vaeDecodeTimeMs: Long? = null,
     ) {
         val line = JSONObject().apply {
             put("at", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()))
@@ -66,8 +73,16 @@ object InferenceDiagnostics {
             put("steps", steps)
             put("gpu", opencl)
             put("profile", profile)
+            put("tuning", tuning)
             put("duration_ms", elapsedMs)
+            // First progress is usually after CLIP, NOT the first UNet step.
             put("first_progress_ms", firstProgressMs ?: -1L)
+            put("native_generation_ms", nativeTotalMs ?: -1L)
+            put("native_first_unet_step_ms", nativeFirstUnetStepMs ?: -1L)
+            put("clip_ms", clipTimeMs ?: -1L)
+            put("unet_setup_ms", unetSetupTimeMs ?: -1L)
+            put("denoise_loop_ms", denoiseLoopTimeMs ?: -1L)
+            put("vae_decode_ms", vaeDecodeTimeMs ?: -1L)
             put("ram_before_MiB", started.availableRamMiB)
             put("ram_after_MiB", finished.availableRamMiB)
             put("low_ram_before", started.lowMemory)
@@ -87,7 +102,9 @@ object InferenceDiagnostics {
         val file = reportFile(context)
         return if (file.isFile && file.length() > 0L) {
             "Local MNN inference diagnostics (last 20, JSONL).\n" +
-                "System available RAM is not GPU allocation. Thermal status 0..6, -1=unknown.\n" +
+                "System RAM is not GPU allocation; denoise_loop_ms includes scheduler/CPU work.\n" +
+                "first_progress_ms is not first UNet inference; native times are server-side.\n" +
+                "Thermal status 0..6, -1=unknown.\n" +
                 "No prompts, seeds or image contents are included.\n" +
                 file.readText()
         } else {

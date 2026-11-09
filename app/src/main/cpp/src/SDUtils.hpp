@@ -32,6 +32,12 @@ struct GenerationResult {
   int channels;
   int generation_time_ms;
   int first_step_time_ms;
+  // Optional profiling fields populated by Pipeline::generate. These are
+  // diagnostics, not a claim of GPU kernel-only time.
+  int clip_time_ms = -1;
+  int unet_setup_time_ms = -1;
+  int denoise_loop_time_ms = -1;
+  int vae_decode_time_ms = -1;
 };
 
 inline std::string base64_encode(const std::string &in) {

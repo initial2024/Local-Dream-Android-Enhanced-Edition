@@ -7,6 +7,8 @@ on:
     paths:
       - 'app/src/main/cpp/mnn_only/**'
       - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
+      - 'app/src/main/cpp/src/Pipeline.hpp'
+      - 'app/src/main/cpp/src/SDUtils.hpp'
       - '.github/workflows/native-mnn-probe.yml'
   workflow_dispatch:
 

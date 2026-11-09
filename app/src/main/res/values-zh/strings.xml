@@ -183,7 +183,7 @@
     <string name="random_seed">随机种子 (可选)</string>
     <string name="use_last_seed">使用上次的种子 (%s)</string>
     <string name="batch_count">批次数量: %d</string>
-    <string name="reproduce">复制</string>
+    <string name="reproduce">复用参数</string>
     <string name="reproduce_params_title">复用参数</string>
     <string name="reproduce_params_hint">选择要应用到提示词页面的字段。</string>
     <string name="select_all">全选</string>
@@ -555,4 +555,8 @@
     <string name="enhanced_reproduce_generate_now">一键复刻原模型并生成</string>
     <string name="enhanced_mnn_copy_inference_report">复制最近 20 次生成性能报告</string>
     <string name="enhanced_mnn_report_copied">性能报告已复制，不包含提示词或图片。</string>
+    <string name="enhanced_mnn_gpu_tuning_title">OpenCL 内核调优</string>
+    <string name="enhanced_mnn_gpu_tuning_fast">快速（原版）</string>
+    <string name="enhanced_mnn_gpu_tuning_normal">标准（实验）</string>
+    <string name="enhanced_mnn_gpu_tuning_hint">快速保留原本较短的初始化路径。标准会尝试更多 OpenCL 工作组组合，首次初始化可能更慢，但后续去噪可能更快。独立缓存；请用完全相同参数对比至少三次热机运行，不保证加速。</string>
 </resources>

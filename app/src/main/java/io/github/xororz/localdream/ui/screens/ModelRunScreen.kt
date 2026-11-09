@@ -150,6 +150,7 @@ import io.github.xororz.localdream.data.HistoryManager
 import io.github.xororz.localdream.data.ModelRepository
 import io.github.xororz.localdream.data.MnnCpuThreads
 import io.github.xororz.localdream.data.MnnGpuProfile
+import io.github.xororz.localdream.data.MnnGpuTuning
 import io.github.xororz.localdream.data.MnnNativeResolution
 import io.github.xororz.localdream.data.ModelStorage
 import io.github.xororz.localdream.data.PatchScanner
@@ -209,6 +210,7 @@ fun ModelRunScreen(
     modifier: Modifier = Modifier,
     isRemote: Boolean = false,
     historyId: Long = -1L,
+    replayNow: Boolean = false,
 ) {
     val serviceState by BackgroundGenerationService.generationState.collectAsState()
     val backendState by BackendService.backendState.collectAsState()
@@ -321,6 +323,7 @@ fun ModelRunScreen(
     // Exactly one request per history route; no stale imported parameters
     // can leak into another model when the destination is reused.
     var historyReproduceHandled by remember(historyId) { mutableStateOf(false) }
+    var autoReplayHandled by remember(historyId, replayNow) { mutableStateOf(false) }
 
     // Parameter share state
     var shareSourceParams by remember { mutableStateOf<GenerationParameters?>(null) }
@@ -467,6 +470,15 @@ fun ModelRunScreen(
         mutableStateOf(
             MnnGpuProfile.validated(
                 preferences.getString(MnnGpuProfile.PREF_KEY, MnnGpuProfile.AUTO),
+            ),
+        )
+    }
+    // Saved with the app-wide MNN backend preferences; changing it only
+    // affects the next request. NORMAL uses a separate native tune cache.
+    var mnnGpuTuning by remember {
+        mutableStateOf(
+            MnnGpuTuning.validated(
+                preferences.getString(MnnGpuTuning.PREF_KEY, MnnGpuTuning.FAST),
             ),
         )
     }
@@ -1516,7 +1528,7 @@ fun ModelRunScreen(
                 // sample: original source photo and mask are not retained.
                 pendingReproduceParams = fromHistory.params
                 pendingReproduceModelId = fromHistory.modelId
-                showReproduceParamsDialog = true
+                showReproduceParamsDialog = !replayNow
             } else {
                 Log.w("ModelRunScreen", "History target missing or belongs to another model")
             }
@@ -2174,6 +2186,210 @@ fun ModelRunScreen(
         return true
     }
 
+
+    fun canReplaySnapshot(params: GenerationParameters, sourceModelId: String?): Boolean =
+        HistoryReplayPolicy.canAutoGenerate(
+            sourceModelId = sourceModelId,
+            activeModelId = modelId,
+            mode = params.mode,
+            seed = params.seed,
+            width = params.width,
+            height = params.height,
+            steps = params.steps,
+            cfg = params.cfg,
+            modelDownloaded = model?.isDownloaded == true,
+            mnnOnly = BuildConfig.MNN_ONLY_NATIVE,
+            runOnCpu = model?.runOnCpu == true,
+            remote = isRemote,
+            backendReady = backendReady,
+            busy = isRunning || isUpscaling || isUltrafixPreparing ||
+                serviceState is GenerationState.Progress ||
+                BackgroundGenerationService.isServiceRunning.value,
+            hasInputImageOrReferences = selectedImageUri != null ||
+                editReferenceImages.isNotEmpty() || isInpaintMode,
+        )
+
+    fun applyReproduceParams(
+        params: GenerationParameters,
+        selectedFields: Set<ParamShareField>,
+        launchAfterApply: Boolean,
+        expectedModelId: String?,
+    ): Boolean {
+
+                if (launchAfterApply && !canReplaySnapshot(params, expectedModelId)) return false
+                if (ParamShareField.PROMPT in selectedFields) {
+                    promptField.replaceText(params.prompt)
+                }
+                if (ParamShareField.NEGATIVE_PROMPT in selectedFields) {
+                    negativePromptField.replaceText(params.negativePrompt)
+                }
+                // An UltraFix image was produced by the tiled img2img repair pass,
+                // whose steps/denoise live in their own UltraFix variables. Route
+                // the reproduced values there (denoise is stored as a strength but
+                // edited as a step count) instead of the prompt-page settings.
+                val isUltrafixParams = params.mode == GenerationMode.ULTRAFIX
+                if (ParamShareField.STEPS in selectedFields) {
+                    if (isUltrafixParams) {
+                        ultrafixSteps = params.steps.toFloat()
+                        val maxDenoiseSteps = minOf(
+                            GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX,
+                            ultrafixSteps.roundToInt(),
+                        )
+                        ultrafixDenoiseSteps = ultrafixDenoiseSteps.coerceIn(0, maxDenoiseSteps)
+                    } else {
+                        steps = params.steps.toFloat()
+                    }
+                }
+                if (ParamShareField.CFG in selectedFields) {
+                    cfg = params.cfg
+                }
+                if (ParamShareField.SEED in selectedFields) {
+                    seed = params.seed?.toString() ?: ""
+                }
+                if (ParamShareField.SCHEDULER in selectedFields) {
+                    scheduler = params.scheduler
+                }
+                if (ParamShareField.DENOISE_STRENGTH in selectedFields) {
+                    if (isUltrafixParams) {
+                        // Invert strength = (steps - 0.5) / total -> steps.
+                        val total = params.steps
+                        val maxDenoiseSteps = minOf(
+                            GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX,
+                            total,
+                        )
+                        ultrafixDenoiseSteps =
+                            (params.denoiseStrength * total + 0.5f).roundToInt()
+                                .coerceIn(0, maxDenoiseSteps)
+                    } else {
+                        denoiseStrength = params.denoiseStrength
+                    }
+                }
+                if (isUltrafixParams) {
+                    saveUltrafixParams()
+                }
+                // History stores output dimensions, not necessarily the native
+                // canvas. Restore a legal input resolution for text-to-image;
+                // do not copy an upscaled/UltraFix output size into inference.
+                if (params.mode == GenerationMode.TXT2IMG) {
+                    when {
+                        model?.isDit == true -> {
+                            currentWidth = snapDitSize(params.width.toFloat())
+                            currentHeight = snapDitSize(params.height.toFloat())
+                            aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
+                        }
+                        model?.runOnCpu == true && model?.usesFixedCanvas != true -> {
+                            val legalCanvas =
+                                if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) {
+                                    MnnNativeResolution.isAllowed(params.width, params.height)
+                                } else {
+                                    params.width == params.height &&
+                                        params.width in 128..512 && params.width % 64 == 0
+                                }
+                            if (legalCanvas) {
+                                currentWidth = params.width
+                                currentHeight = params.height
+                                aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
+                            }
+                        }
+                        model?.usesFixedCanvas != true && model?.runOnCpu == false -> {
+                            val valid = availableResolutions.any {
+                                it.width == params.width && it.height == params.height
+                            }
+                            if (valid) {
+                                currentWidth = params.width
+                                currentHeight = params.height
+                            }
+                        }
+                    }
+                }
+                if (model?.usesFixedCanvas == true && useImg2img) {
+                    val newRatio = inferAspectRatioString(params.width, params.height)
+                    if (newRatio != aspectRatio) {
+                        aspectRatio = newRatio
+                        clearImg2imgState()
+                    }
+                }
+                if (launchAfterApply) {
+                    // The full replay preserves CPU/OpenCL selection and the
+                    // saved model's native resolution; partial field imports
+                    // intentionally leave the current runtime untouched.
+                    useOpenCL = params.useOpenCL
+                    batchCounts = 1
+                    clearImg2imgState()
+                }
+                saveAllFields()
+
+                showReproduceParamsDialog = false
+                pendingReproduceParams = null
+                pendingReproduceModelId = null
+                showHistoryDetailDialog = false
+                selectedHistoryItem = null
+                scope.launch {
+                    pagerState.animateScrollToPage(0)
+                }
+                if (launchAfterApply && !startStandardGeneration()) {
+                    errorMessage = "Model backend is not ready to reproduce yet; parameters were restored"
+                    return false
+                }
+                return true
+    }
+
+    fun quickReplayOnCurrentScreen(params: GenerationParameters, sourceId: String?) {
+        pendingReproduceParams = params
+        pendingReproduceModelId = sourceId
+        val ok = applyReproduceParams(
+            params,
+            setOf(
+                ParamShareField.PROMPT, ParamShareField.NEGATIVE_PROMPT,
+                ParamShareField.STEPS, ParamShareField.CFG,
+                ParamShareField.SEED, ParamShareField.SCHEDULER,
+            ),
+            launchAfterApply = true,
+            expectedModelId = sourceId,
+        )
+        if (!ok) {
+            pendingReproduceParams = params
+            pendingReproduceModelId = sourceId
+            showReproduceParamsDialog = true
+        }
+    }
+
+    // Direct history replay waits for the correct model and backend to be
+    // ready, then consumes the route exactly once. Failed safety checks fall
+    // back to the selective-restore dialog, never silently switch models.
+    LaunchedEffect(replayNow, historyReproduceHandled, pendingReproduceParams,
+        backendReady, isCheckingBackend, serviceState, autoReplayHandled
+    ) {
+        if (!replayNow || !historyReproduceHandled || autoReplayHandled) return@LaunchedEffect
+        val stored = pendingReproduceParams ?: return@LaunchedEffect
+        if (!backendReady) {
+            if (!isCheckingBackend && errorMessage != null) {
+                autoReplayHandled = true
+                showReproduceParamsDialog = true
+            }
+            return@LaunchedEffect
+        }
+        autoReplayHandled = true
+        val ok = applyReproduceParams(
+            stored,
+            setOf(
+                ParamShareField.PROMPT, ParamShareField.NEGATIVE_PROMPT,
+                ParamShareField.STEPS, ParamShareField.CFG,
+                ParamShareField.SEED, ParamShareField.SCHEDULER,
+            ),
+            launchAfterApply = true,
+            expectedModelId = pendingReproduceModelId,
+        )
+        if (!ok) {
+            // The model could have been uninstalled, the generation service
+            // could still be stopping or the saved snapshot could be invalid.
+            // Keep the original parameters visible for manual recovery.
+            pendingReproduceParams = stored
+            pendingReproduceModelId = modelId
+            showReproduceParamsDialog = true
+        }
+    }
+
     // === Page Composable Functions ===
     @Composable
     fun PromptPage() {
@@ -2327,6 +2543,7 @@ fun ModelRunScreen(
                                     showMnnCpuThreads = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
                                     showMnnGpuProfile = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
                                     gpuProfile = mnnGpuProfile,
+                                    gpuTuning = mnnGpuTuning,
                                     showMnnNativeHd = BuildConfig.MNN_ONLY_NATIVE && !isRemote &&
                                         model?.runOnCpu == true && model?.usesFixedCanvas != true,
                                     cpuThreads = mnnCpuThreads,
@@ -2385,6 +2602,15 @@ fun ModelRunScreen(
                                                 context.getString(R.string.enhanced_mnn_report_copied),
                                                 Toast.LENGTH_SHORT,
                                             ).show()
+                                        }
+                                    },
+                                    onGpuTuningChange = { requested ->
+                                        if (!isRunning) {
+                                            mnnGpuTuning = MnnGpuTuning.validated(requested)
+                                            preferences.edit().putString(
+                                                MnnGpuTuning.PREF_KEY,
+                                                mnnGpuTuning,
+                                            ).apply()
                                         }
                                     },
                                     onGpuProfileChange = { requested ->
@@ -3387,6 +3613,13 @@ fun ModelRunScreen(
                     showReproduceParamsDialog = true
                 }
             },
+            onQuickReplay = {
+                val params = generationParams
+                if (params != null) {
+                    showParametersDialog = false
+                    quickReplayOnCurrentScreen(params, generationParamsModelId)
+                }
+            },
             onDismiss = { showParametersDialog = false },
         )
     }
@@ -3889,6 +4122,35 @@ fun ModelRunScreen(
                 showHistoryParametersDialog = false
                 showReproduceParamsDialog = true
             },
+            onQuickReplay = {
+                val selected = selectedHistoryItem
+                if (selected != null) {
+                    showHistoryParametersDialog = false
+                    if (selected.modelId == modelId) {
+                        quickReplayOnCurrentScreen(selected.params, selected.modelId)
+                    } else {
+                        scope.launch {
+                            modelRepository.ensureLoaded()
+                            if (modelRepository.models.any {
+                                    it.id == selected.modelId && it.isDownloaded
+                                }) {
+                                navController.navigate(
+                                    Screen.ModelRun.createRoute(
+                                        modelId = selected.modelId,
+                                        historyId = selected.id,
+                                        replayNow = true,
+                                    ),
+                                )
+                                showHistoryDetailDialog = false
+                                selectedHistoryItem = null
+                            } else {
+                                Toast.makeText(context,
+                                    "原模型未安装，无法自动复刻。", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            },
             onDismiss = { showHistoryParametersDialog = false },
         )
     }
@@ -3920,120 +4182,12 @@ fun ModelRunScreen(
             params = params,
             canQuickReproduce = canReproduceNow,
             onApply = { selectedFields, launchAfterApply ->
-                if (launchAfterApply && !canReproduceNow) return@ReproduceParametersDialog
-                if (ParamShareField.PROMPT in selectedFields) {
-                    promptField.replaceText(params.prompt)
-                }
-                if (ParamShareField.NEGATIVE_PROMPT in selectedFields) {
-                    negativePromptField.replaceText(params.negativePrompt)
-                }
-                // An UltraFix image was produced by the tiled img2img repair pass,
-                // whose steps/denoise live in their own UltraFix variables. Route
-                // the reproduced values there (denoise is stored as a strength but
-                // edited as a step count) instead of the prompt-page settings.
-                val isUltrafixParams = params.mode == GenerationMode.ULTRAFIX
-                if (ParamShareField.STEPS in selectedFields) {
-                    if (isUltrafixParams) {
-                        ultrafixSteps = params.steps.toFloat()
-                        val maxDenoiseSteps = minOf(
-                            GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX,
-                            ultrafixSteps.roundToInt(),
-                        )
-                        ultrafixDenoiseSteps = ultrafixDenoiseSteps.coerceIn(0, maxDenoiseSteps)
-                    } else {
-                        steps = params.steps.toFloat()
-                    }
-                }
-                if (ParamShareField.CFG in selectedFields) {
-                    cfg = params.cfg
-                }
-                if (ParamShareField.SEED in selectedFields) {
-                    seed = params.seed?.toString() ?: ""
-                }
-                if (ParamShareField.SCHEDULER in selectedFields) {
-                    scheduler = params.scheduler
-                }
-                if (ParamShareField.DENOISE_STRENGTH in selectedFields) {
-                    if (isUltrafixParams) {
-                        // Invert strength = (steps - 0.5) / total -> steps.
-                        val total = params.steps
-                        val maxDenoiseSteps = minOf(
-                            GenerationDefaults.ULTRAFIX_DENOISE_STEPS_MAX,
-                            total,
-                        )
-                        ultrafixDenoiseSteps =
-                            (params.denoiseStrength * total + 0.5f).roundToInt()
-                                .coerceIn(0, maxDenoiseSteps)
-                    } else {
-                        denoiseStrength = params.denoiseStrength
-                    }
-                }
-                if (isUltrafixParams) {
-                    saveUltrafixParams()
-                }
-                // History stores output dimensions, not necessarily the native
-                // canvas. Restore a legal input resolution for text-to-image;
-                // do not copy an upscaled/UltraFix output size into inference.
-                if (params.mode == GenerationMode.TXT2IMG) {
-                    when {
-                        model?.isDit == true -> {
-                            currentWidth = snapDitSize(params.width.toFloat())
-                            currentHeight = snapDitSize(params.height.toFloat())
-                            aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
-                        }
-                        model?.runOnCpu == true && model?.usesFixedCanvas != true -> {
-                            val legalCanvas =
-                                if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) {
-                                    MnnNativeResolution.isAllowed(params.width, params.height)
-                                } else {
-                                    params.width == params.height &&
-                                        params.width in 128..512 && params.width % 64 == 0
-                                }
-                            if (legalCanvas) {
-                                currentWidth = params.width
-                                currentHeight = params.height
-                                aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
-                            }
-                        }
-                        model?.usesFixedCanvas != true && model?.runOnCpu == false -> {
-                            val valid = availableResolutions.any {
-                                it.width == params.width && it.height == params.height
-                            }
-                            if (valid) {
-                                currentWidth = params.width
-                                currentHeight = params.height
-                            }
-                        }
-                    }
-                }
-                if (model?.usesFixedCanvas == true && useImg2img) {
-                    val newRatio = inferAspectRatioString(params.width, params.height)
-                    if (newRatio != aspectRatio) {
-                        aspectRatio = newRatio
-                        clearImg2imgState()
-                    }
-                }
-                if (launchAfterApply) {
-                    // The full replay preserves CPU/OpenCL selection and the
-                    // saved model's native resolution; partial field imports
-                    // intentionally leave the current runtime untouched.
-                    useOpenCL = params.useOpenCL
-                    batchCounts = 1
-                    clearImg2imgState()
-                }
-                saveAllFields()
-
-                showReproduceParamsDialog = false
-                pendingReproduceParams = null
-                pendingReproduceModelId = null
-                showHistoryDetailDialog = false
-                selectedHistoryItem = null
-                scope.launch {
-                    pagerState.animateScrollToPage(0)
-                }
-                if (launchAfterApply && !startStandardGeneration()) {
-                    errorMessage = "Model backend is not ready to reproduce yet; parameters were restored"
-                }
+                applyReproduceParams(
+                    params,
+                    selectedFields,
+                    launchAfterApply,
+                    pendingReproduceModelId,
+                )
             },
             onDismiss = {
                 showReproduceParamsDialog = false

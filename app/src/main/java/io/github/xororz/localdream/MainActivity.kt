@@ -190,16 +190,22 @@ private fun AppContent() {
                     type = NavType.LongType
                     defaultValue = -1L
                 },
+                navArgument("replayNow") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
             ),
         ) { backStackEntry ->
             val modelId = backStackEntry.arguments?.getString("modelId") ?: ""
             val isRemote = backStackEntry.arguments?.getBoolean("remote") ?: false
             val historyId = backStackEntry.arguments?.getLong("historyId") ?: -1L
+            val replayNow = backStackEntry.arguments?.getBoolean("replayNow") ?: false
 
             ModelRunScreen(
                 modelId = modelId,
                 isRemote = isRemote,
                 historyId = historyId,
+                replayNow = replayNow,
                 navController = navController,
             )
         }
