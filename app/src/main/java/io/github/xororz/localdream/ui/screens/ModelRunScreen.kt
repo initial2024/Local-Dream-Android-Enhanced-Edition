@@ -2324,6 +2324,26 @@ fun ModelRunScreen(
                 return true
     }
 
+    fun quickReplayOnCurrentScreen(params: GenerationParameters, sourceId: String?) {
+        pendingReproduceParams = params
+        pendingReproduceModelId = sourceId
+        val ok = applyReproduceParams(
+            params,
+            setOf(
+                ParamShareField.PROMPT, ParamShareField.NEGATIVE_PROMPT,
+                ParamShareField.STEPS, ParamShareField.CFG,
+                ParamShareField.SEED, ParamShareField.SCHEDULER,
+            ),
+            launchAfterApply = true,
+            expectedModelId = sourceId,
+        )
+        if (!ok) {
+            pendingReproduceParams = params
+            pendingReproduceModelId = sourceId
+            showReproduceParamsDialog = true
+        }
+    }
+
     // Direct history replay waits for the correct model and backend to be
     // ready, then consumes the route exactly once. Failed safety checks fall
     // back to the selective-restore dialog, never silently switch models.
@@ -3573,6 +3593,13 @@ fun ModelRunScreen(
                     showReproduceParamsDialog = true
                 }
             },
+            onQuickReplay = {
+                val params = generationParams
+                if (params != null) {
+                    showParametersDialog = false
+                    quickReplayOnCurrentScreen(params, generationParamsModelId)
+                }
+            },
             onDismiss = { showParametersDialog = false },
         )
     }
@@ -4074,6 +4101,35 @@ fun ModelRunScreen(
                 pendingReproduceModelId = selectedHistoryItem!!.modelId
                 showHistoryParametersDialog = false
                 showReproduceParamsDialog = true
+            },
+            onQuickReplay = {
+                val selected = selectedHistoryItem
+                if (selected != null) {
+                    showHistoryParametersDialog = false
+                    if (selected.modelId == modelId) {
+                        quickReplayOnCurrentScreen(selected.params, selected.modelId)
+                    } else {
+                        scope.launch {
+                            modelRepository.ensureLoaded()
+                            if (modelRepository.models.any {
+                                    it.id == selected.modelId && it.isDownloaded
+                                }) {
+                                navController.navigate(
+                                    Screen.ModelRun.createRoute(
+                                        modelId = selected.modelId,
+                                        historyId = selected.id,
+                                        replayNow = true,
+                                    ),
+                                )
+                                showHistoryDetailDialog = false
+                                selectedHistoryItem = null
+                            } else {
+                                Toast.makeText(context,
+                                    "原模型未安装，无法自动复刻。", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
             },
             onDismiss = { showHistoryParametersDialog = false },
         )
