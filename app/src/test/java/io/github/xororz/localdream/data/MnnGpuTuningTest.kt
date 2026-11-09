@@ -10,8 +10,8 @@ class MnnGpuTuningTest {
         assertEquals(MnnGpuTuning.FAST, MnnGpuTuning.validated("NORMAL"))
     }
 
-    @Test fun normalIsExplicitOptIn() {
-        assertEquals(MnnGpuTuning.NORMAL, MnnGpuTuning.validated("normal"))
+    @Test fun retiredNormalFallsBackToFast() {
+        assertEquals(MnnGpuTuning.FAST, MnnGpuTuning.validated("normal"))
         assertEquals(MnnGpuTuning.FAST, MnnGpuTuning.validated("fast"))
     }
 }
