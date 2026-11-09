@@ -71,6 +71,40 @@ CI lowmem-order regression test is NOT a substitute for an Android image test.
    fall back to alpha.7. Escalate with one new diagnostic JSONL report and a
    screenshot. Never infer a quality pass from CI success alone.
 
+## Alpha.10: safe OpenCL warm-cache startup and per-step performance test
+
+User device observations (same model, 640×640, 20 steps, GPU lowmem FAST,
+same seed): alpha.7 correct-image 158522ms (UNet setup 7421ms, denoise 145950ms);
+alpha.9 correct-image 180537ms (setup 28681ms, denoise 147002ms).
+The 22015ms wall difference is almost fully explained by a 21260ms
+setup difference. Alpha.9 intentionally created the new
+`unet_cache_serial_cfg_quality_recovery.mnnc.640` namespace, so cold-cache
+preparation is a plausible hypothesis. Single trials do not prove persistent
+regression or a validated cache hit.
+
+Alpha.10 keeps the exact known-good alpha.9 negative/positive CFG transfers,
+seed, 640px pixels, scheduler, model and FP16 precision. It sets the native
+MNN UNet interpreter to `Session_Release` (disables operation debug callback
+bookkeeping) and records the *filesystem bytes* before and after the UNet
+resize+cache-save stage. These values are PASSIVE observations: an existing
+cache file can be stale, invalid or internally rejected by MNN. No claim of a
+confirmed cache hit is allowed.
+
+Phone acceptance gate before recommending alpha.10 as faster:
+1. Install alpha.10 over alpha.9 without wiping any app history/model data.
+2. Reproduce the same red apple/wood table/window image using the saved seed.
+   If noisy or semantically broken, STOP. Do not count its speed.
+3. Generate the same image **three times** with no heavy app concurrency;
+   record both native `unet_setup_ms` and `denoise_loop_ms`, plus
+   `unet_cache_file_before_bytes` and `unet_cache_file_after_bytes`.
+4. Compare median of the 2nd/3rd successful runs with alpha.9 (and with
+   alpha.7 where directly comparable), not only the first cold run.
+5. If the cache file exists but setup remains >20s in repeated runs,
+   inspect MNN validation logs / model geometry / cache invalidation;
+   do not repeatedly rename caches or switch to NORMAL tuning.
+6. No auto-selected batch=2 Buffer at 640px: user previously reported
+   whole-phone stalls under concurrent apps. Low-memory remains default.
+
 ## Separate later gates
 - Photo-to-MP4 encoder: verify offline video playback and duration on real Android hardware; it is not an AI video generation model.
 - SDXL MNN, Qwen Image, FLUX or true image-to-video: each requires a separate independently verified backend, format conversion, licensing, memory and output-quality assessment. No support is implied by the initial SD1.5 test APK.
