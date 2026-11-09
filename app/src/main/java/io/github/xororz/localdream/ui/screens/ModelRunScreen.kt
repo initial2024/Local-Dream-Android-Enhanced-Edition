@@ -473,14 +473,12 @@ fun ModelRunScreen(
             ),
         )
     }
-    // Saved with the app-wide MNN backend preferences; changing it only
-    // affects the next request. NORMAL uses a separate native tune cache.
-    var mnnGpuTuning by remember {
-        mutableStateOf(
-            MnnGpuTuning.validated(
-                preferences.getString(MnnGpuTuning.PREF_KEY, MnnGpuTuning.FAST),
-            ),
-        )
+    // Migrate the previously selectable NORMAL policy out of persisted
+    // preferences. Backend requests are separately hard-pinned to FAST.
+    LaunchedEffect(Unit) {
+        if (BuildConfig.MNN_ONLY_NATIVE && preferences.contains(MnnGpuTuning.PREF_KEY)) {
+            preferences.edit().remove(MnnGpuTuning.PREF_KEY).apply()
+        }
     }
     // Both settings can only change on the model list screen, so a snapshot
     // taken once per screen entry is enough; re-reading on every recomposition
@@ -2543,7 +2541,6 @@ fun ModelRunScreen(
                                     showMnnCpuThreads = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
                                     showMnnGpuProfile = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
                                     gpuProfile = mnnGpuProfile,
-                                    gpuTuning = mnnGpuTuning,
                                     showMnnNativeHd = BuildConfig.MNN_ONLY_NATIVE && !isRemote &&
                                         model?.runOnCpu == true && model?.usesFixedCanvas != true,
                                     cpuThreads = mnnCpuThreads,
@@ -2602,15 +2599,6 @@ fun ModelRunScreen(
                                                 context.getString(R.string.enhanced_mnn_report_copied),
                                                 Toast.LENGTH_SHORT,
                                             ).show()
-                                        }
-                                    },
-                                    onGpuTuningChange = { requested ->
-                                        if (!isRunning) {
-                                            mnnGpuTuning = MnnGpuTuning.validated(requested)
-                                            preferences.edit().putString(
-                                                MnnGpuTuning.PREF_KEY,
-                                                mnnGpuTuning,
-                                            ).apply()
                                         }
                                     },
                                     onGpuProfileChange = { requested ->
