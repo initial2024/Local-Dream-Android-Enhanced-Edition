@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.xororz.localdream.R
 import io.github.xororz.localdream.data.MnnNativeResolution
+import io.github.xororz.localdream.data.MnnGpuProfile
 import io.github.xororz.localdream.data.Resolution
 import kotlin.math.roundToInt
 
@@ -67,6 +68,8 @@ internal fun AdvancedSettingsDialog(
     cfg: Float,
     useOpenCL: Boolean,
     showMnnCpuThreads: Boolean = false,
+    showMnnGpuProfile: Boolean = false,
+    gpuProfile: String = MnnGpuProfile.AUTO,
     showMnnNativeHd: Boolean = false,
     cpuThreads: Int = 4,
     batchCounts: Int,
@@ -86,6 +89,7 @@ internal fun AdvancedSettingsDialog(
     onCpuSelected: () -> Unit,
     onGpuSelected: () -> Unit,
     onCpuThreadsChange: (Int) -> Unit = {},
+    onGpuProfileChange: (String) -> Unit = {},
     onBatchCountsChange: (Float) -> Unit,
     onDenoiseStrengthChange: (Float) -> Unit,
     onSeedChange: (String) -> Unit,
@@ -458,6 +462,43 @@ internal fun AdvancedSettingsDialog(
                         ) {
                             Text("GPU")
                         }
+                    }
+                }
+                if (showMnnGpuProfile && runOnCpu && useOpenCL) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            stringResource(R.string.enhanced_mnn_gpu_profile_title),
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            val names = listOf(
+                                R.string.enhanced_mnn_gpu_auto,
+                                R.string.enhanced_mnn_gpu_buffer,
+                                R.string.enhanced_mnn_gpu_lowmem,
+                                R.string.enhanced_mnn_gpu_image,
+                            )
+                            MnnGpuProfile.options.forEachIndexed { index, candidate ->
+                                ToggleButton(
+                                    checked = gpuProfile == candidate,
+                                    enabled = !isRunning,
+                                    onCheckedChange = { checked ->
+                                        if (checked) onGpuProfileChange(candidate)
+                                    },
+                                ) {
+                                    Text(stringResource(names[index]))
+                                }
+                            }
+                        }
+                        Text(
+                            stringResource(R.string.enhanced_mnn_gpu_profile_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
                 if (showMnnCpuThreads && runOnCpu && !useOpenCL) {
