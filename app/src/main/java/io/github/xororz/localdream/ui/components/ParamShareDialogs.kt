@@ -197,8 +197,9 @@ fun ShareParametersDialog(
 @Composable
 fun ReproduceParametersDialog(
     params: GenerationParameters,
-    onApply: (selected: Set<ParamShareField>) -> Unit,
+    onApply: (selected: Set<ParamShareField>, startGeneration: Boolean) -> Unit,
     onDismiss: () -> Unit,
+    canQuickReproduce: Boolean = false,
 ) {
     val available = remember(params) {
         buildList {
@@ -273,33 +274,44 @@ fun ReproduceParametersDialog(
             }
         },
         confirmButton = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val allSelected = selected.value.size == available.size
-                TextButton(
-                    onClick = {
-                        selected.value =
-                            if (allSelected) emptySet() else available.toSet()
-                    },
-                ) {
-                    Text(
-                        stringResource(
-                            if (allSelected) R.string.deselect_all else R.string.select_all,
-                        ),
-                    )
-                }
-                Row {
-                    TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.cancel))
-                    }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (params.mode == GenerationMode.TXT2IMG) {
                     TextButton(
-                        onClick = { onApply(selected.value) },
-                        enabled = selected.value.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = canQuickReproduce,
+                        onClick = { onApply(available.toSet(), true) },
                     ) {
-                        Text(stringResource(R.string.import_apply))
+                        Text(stringResource(R.string.enhanced_reproduce_generate_now))
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val allSelected = selected.value.size == available.size
+                    TextButton(
+                        onClick = {
+                            selected.value =
+                                if (allSelected) emptySet() else available.toSet()
+                        },
+                    ) {
+                        Text(
+                            stringResource(
+                                if (allSelected) R.string.deselect_all else R.string.select_all,
+                            ),
+                        )
+                    }
+                    Row {
+                        TextButton(onClick = onDismiss) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                        TextButton(
+                            onClick = { onApply(selected.value, false) },
+                            enabled = selected.value.isNotEmpty(),
+                        ) {
+                            Text(stringResource(R.string.import_apply))
+                        }
                     }
                 }
             }
