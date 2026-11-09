@@ -142,6 +142,7 @@ import io.github.xororz.localdream.data.GenerationDefaults
 import io.github.xororz.localdream.data.GenerationMode
 import io.github.xororz.localdream.data.GenerationPreferences
 import io.github.xororz.localdream.data.HistoryFilter
+import io.github.xororz.localdream.data.HistoryReplayPolicy
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
 import io.github.xororz.localdream.data.ModelRepository
@@ -314,6 +315,7 @@ fun ModelRunScreen(
     var showDeleteHistoryDialog by remember { mutableStateOf(false) }
     var showReproduceParamsDialog by remember { mutableStateOf(false) }
     var pendingReproduceParams by remember { mutableStateOf<GenerationParameters?>(null) }
+    var pendingReproduceModelId by remember { mutableStateOf<String?>(null) }
     // Exactly one request per history route; no stale imported parameters
     // can leak into another model when the destination is reused.
     var historyReproduceHandled by remember(historyId) { mutableStateOf(false) }
@@ -1511,6 +1513,7 @@ fun ModelRunScreen(
                 // dialog. Never auto-generate a historical img2img/inpaint
                 // sample: original source photo and mask are not retained.
                 pendingReproduceParams = fromHistory.params
+                pendingReproduceModelId = fromHistory.modelId
                 showReproduceParamsDialog = true
             } else {
                 Log.w("ModelRunScreen", "History target missing or belongs to another model")
@@ -3359,6 +3362,7 @@ fun ModelRunScreen(
             onReproduce = {
                 generationParams?.let {
                     pendingReproduceParams = it
+                    pendingReproduceModelId = generationParamsModelId
                     showParametersDialog = false
                     showReproduceParamsDialog = true
                 }
@@ -3861,6 +3865,7 @@ fun ModelRunScreen(
             },
             onReproduce = {
                 pendingReproduceParams = selectedHistoryItem!!.params
+                pendingReproduceModelId = selectedHistoryItem!!.modelId
                 showHistoryParametersDialog = false
                 showReproduceParamsDialog = true
             },
@@ -3871,9 +3876,31 @@ fun ModelRunScreen(
     // Reproduce parameters dialog
     if (showReproduceParamsDialog && pendingReproduceParams != null) {
         val params = pendingReproduceParams!!
+        val canReproduceNow = HistoryReplayPolicy.canAutoGenerate(
+            sourceModelId = pendingReproduceModelId,
+            activeModelId = modelId,
+            mode = params.mode,
+            seed = params.seed,
+            width = params.width,
+            height = params.height,
+            steps = params.steps,
+            cfg = params.cfg,
+            modelDownloaded = model?.isDownloaded == true,
+            mnnOnly = BuildConfig.MNN_ONLY_NATIVE,
+            runOnCpu = model?.runOnCpu == true,
+            remote = isRemote,
+            backendReady = backendReady,
+            busy = isRunning || isUpscaling || isUltrafixPreparing ||
+                serviceState is GenerationState.Progress ||
+                BackgroundGenerationService.isServiceRunning.value,
+            hasInputImageOrReferences = selectedImageUri != null ||
+                editReferenceImages.isNotEmpty() || isInpaintMode,
+        )
         ReproduceParametersDialog(
             params = params,
-            onApply = { selectedFields ->
+            canQuickReproduce = canReproduceNow,
+            onApply = { selectedFields, launchAfterApply ->
+                if (launchAfterApply && !canReproduceNow) return@ReproduceParametersDialog
                 if (ParamShareField.PROMPT in selectedFields) {
                     promptField.replaceText(params.prompt)
                 }
@@ -3935,12 +3962,17 @@ fun ModelRunScreen(
                             aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
                         }
                         model?.runOnCpu == true && model?.usesFixedCanvas != true -> {
-                            val size = params.width
-                            if (params.width == params.height &&
-                                size in 128..512 && size % 64 == 0
-                            ) {
-                                currentWidth = size
-                                currentHeight = size
+                            val legalCanvas =
+                                if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) {
+                                    MnnNativeResolution.isAllowed(params.width, params.height)
+                                } else {
+                                    params.width == params.height &&
+                                        params.width in 128..512 && params.width % 64 == 0
+                                }
+                            if (legalCanvas) {
+                                currentWidth = params.width
+                                currentHeight = params.height
+                                aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
                             }
                         }
                         model?.usesFixedCanvas != true && model?.runOnCpu == false -> {
@@ -3961,19 +3993,32 @@ fun ModelRunScreen(
                         clearImg2imgState()
                     }
                 }
+                if (launchAfterApply) {
+                    // The full replay preserves CPU/OpenCL selection and the
+                    // saved model's native resolution; partial field imports
+                    // intentionally leave the current runtime untouched.
+                    useOpenCL = params.useOpenCL
+                    batchCounts = 1
+                    clearImg2imgState()
+                }
                 saveAllFields()
 
                 showReproduceParamsDialog = false
                 pendingReproduceParams = null
+                pendingReproduceModelId = null
                 showHistoryDetailDialog = false
                 selectedHistoryItem = null
                 scope.launch {
                     pagerState.animateScrollToPage(0)
                 }
+                if (launchAfterApply && !startStandardGeneration()) {
+                    errorMessage = "Model backend is not ready to reproduce yet; parameters were restored"
+                }
             },
             onDismiss = {
                 showReproduceParamsDialog = false
                 pendingReproduceParams = null
+                pendingReproduceModelId = null
                 showHistoryDetailDialog = false
                 selectedHistoryItem = null
             },
