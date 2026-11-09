@@ -15,6 +15,7 @@ import androidx.core.graphics.createBitmap
 import io.github.xororz.localdream.R
 import io.github.xororz.localdream.BuildConfig
 import io.github.xororz.localdream.data.MnnGpuProfile
+import io.github.xororz.localdream.data.MnnGpuTuning
 import io.github.xororz.localdream.data.InferenceDiagnostics
 import io.github.xororz.localdream.utils.Http
 import java.io.BufferedReader
@@ -314,6 +315,11 @@ class BackgroundGenerationService : Service() {
                 MnnGpuProfile.LOW_MEMORY
             } else MnnGpuProfile.effective(requestedProfile, width, height)
         } else "cpu"
+        val effectiveTuning = if (isLocalMnn && useOpenCL) {
+            MnnGpuTuning.validated(
+                runtimePrefs.getString(MnnGpuTuning.PREF_KEY, MnnGpuTuning.FAST),
+            )
+        } else "cpu"
 
         fun saveDiagnostic(success: Boolean) {
             val start = beforeSample ?: return
@@ -326,6 +332,7 @@ class BackgroundGenerationService : Service() {
                     steps = steps,
                     opencl = useOpenCL,
                     profile = effectiveProfile,
+                    tuning = effectiveTuning,
                     elapsedMs = SystemClock.elapsedRealtime() - generationStartMs,
                     firstProgressMs = firstProgressMs,
                     started = start,
@@ -362,7 +369,8 @@ class BackgroundGenerationService : Service() {
                 put("use_opencl", useOpenCL)
                 if (isLocalMnn && useOpenCL) {
                     put("mnn_gpu_profile", effectiveProfile)
-                    Log.i("MnnGpuProfile", "size=${width}x${height} profile=$effectiveProfile")
+                    put("mnn_gpu_tuning", effectiveTuning)
+                    Log.i("MnnGpuProfile", "size=${width}x${height} profile=$effectiveProfile tuning=$effectiveTuning")
                 }
                 put("scheduler", scheduler)
                 // Ultrafix never streams previews: each one would tile-decode
