@@ -566,4 +566,8 @@
     <string name="enhanced_reproduce_generate_now">Reproduce with original model and generate</string>
     <string name="enhanced_mnn_copy_inference_report">Copy recent inference diagnostics (last 20)</string>
     <string name="enhanced_mnn_report_copied">GPU performance report copied. It contains no prompts or images.</string>
+    <string name="enhanced_mnn_gpu_tuning_title">OpenCL kernel tuning</string>
+    <string name="enhanced_mnn_gpu_tuning_fast">Fast (original)</string>
+    <string name="enhanced_mnn_gpu_tuning_normal">Normal (experimental)</string>
+    <string name="enhanced_mnn_gpu_tuning_hint">Fast keeps the previous quick startup and cached kernels. Normal explores more OpenCL workgroup configurations: first run may initialize slower, but later denoising could be faster. Uses its own cache; evaluate identical settings in at least three warm runs.</string>
 </resources>
