@@ -53,6 +53,7 @@ object InferenceDiagnostics {
         steps: Int,
         opencl: Boolean,
         profile: String,
+        tuning: String,
         elapsedMs: Long,
         firstProgressMs: Long?,
         started: Sample,
@@ -72,6 +73,7 @@ object InferenceDiagnostics {
             put("steps", steps)
             put("gpu", opencl)
             put("profile", profile)
+            put("tuning", tuning)
             put("duration_ms", elapsedMs)
             // First progress is usually after CLIP, NOT the first UNet step.
             put("first_progress_ms", firstProgressMs ?: -1L)
