@@ -69,6 +69,7 @@ inline MNN::Interpreter *createMnnInterpreterMmap(const char *path) {
 // with low precision, plus an on-disk tuning cache when cache_file is set.
 struct MnnSessionOptions {
   bool use_opencl = false;
+  bool use_gpu_image = false;
   std::string cache_file;  // OpenCL tuning cache path ("" = no cache file)
   int num_threads = 4;
 };
@@ -84,7 +85,8 @@ inline MNN::Session *createMnnSession(MNN::Interpreter *interpreter,
       interpreter->setCacheFile(opts.cache_file.c_str());
     }
     config.type = MNN_FORWARD_OPENCL;
-    config.mode = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
+    config.mode = (opts.use_gpu_image ? MNN_GPU_MEMORY_IMAGE : MNN_GPU_MEMORY_BUFFER) |
+                  MNN_GPU_TUNING_FAST;
     backendConfig.precision = MNN::BackendConfig::Precision_Low;
   } else {
     config.type = MNN_FORWARD_CPU;
