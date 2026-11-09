@@ -186,28 +186,38 @@ class PipelineSd15Cpu : public Pipeline {
 
     const size_t latent_count = (size_t)4 * (req.height / 8) * (req.width / 8);
     if (req.mnn_sequential_cfg && !skip_uncond) {
-      // Same CFG equation as batched execution: run unconditional then
-      // positive conditioning with a single-batch MNN session. Outputs
-      // retain the original [uncond, positive] order for the scheduler.
-      const size_t cond_elements = cond.hidden.size() / 2;
-      auto run_half = [&](int half, const float *conditioning) {
+      // Low-memory CFG still computes negative and positive predictions
+      // separately, without reducing the number of diffusion steps.
+      // The CLIP conditioning stays constant for an entire image.
+      // Materialize each host tensor once per request; do not copy the
+      // 77x768 embeddings from CLIP on all 40 MNN submissions.
+      if (!unet_encoder_negative_host_) {
+        const size_t cond_elements = cond.hidden.size() / 2;
+        unet_encoder_negative_host_ =
+            std::make_unique<MNN::Tensor>(enc, MNN::Tensor::CAFFE);
+        unet_encoder_positive_host_ =
+            std::make_unique<MNN::Tensor>(enc, MNN::Tensor::CAFFE);
+        memcpy(unet_encoder_negative_host_->host<float>(), cond.negHidden(),
+               cond_elements * sizeof(float));
+        memcpy(unet_encoder_positive_host_->host<float>(), cond.posHidden(),
+               cond_elements * sizeof(float));
+      }
+      memcpy(ts_nchw_tensor->host<int>(), &timestep, sizeof(int));
+      ts->copyFromHostTensor(ts_nchw_tensor);
+      auto run_half = [&](int half, MNN::Tensor *conditioning) {
         memcpy(samp_nchw_tensor->host<float>(),
                latents_batch2 + half * latent_count,
                latent_count * sizeof(float));
-        memcpy(ts_nchw_tensor->host<int>(), &timestep, sizeof(int));
-        memcpy(enc_nchw_tensor->host<float>(), conditioning,
-               cond_elements * sizeof(float));
         samp->copyFromHostTensor(samp_nchw_tensor);
-        ts->copyFromHostTensor(ts_nchw_tensor);
-        enc->copyFromHostTensor(enc_nchw_tensor);
+        enc->copyFromHostTensor(conditioning);
         if (unet_interpreter_->runSession(unet_session_) != 0)
           throw std::runtime_error("MNN low-memory UNet execution failed");
         unet_output_device_->copyToHostTensor(samp_nchw_tensor);
         memcpy(out_batch2 + half * latent_count,
                samp_nchw_tensor->host<float>(), latent_count * sizeof(float));
       };
-      run_half(0, cond.negHidden());
-      run_half(1, cond.posHidden());
+      run_half(0, unet_encoder_negative_host_.get());
+      run_half(1, unet_encoder_positive_host_.get());
       return;
     }
     const size_t output_count = (skip_uncond ? 1 : 2) * latent_count;
@@ -246,6 +256,8 @@ class PipelineSd15Cpu : public Pipeline {
     unet_sample_host_.reset();
     unet_timestep_host_.reset();
     unet_encoder_host_.reset();
+    unet_encoder_negative_host_.reset();
+    unet_encoder_positive_host_.reset();
     unet_sample_device_ = nullptr;
     unet_timestep_device_ = nullptr;
     unet_encoder_device_ = nullptr;
@@ -346,6 +358,8 @@ class PipelineSd15Cpu : public Pipeline {
   std::unique_ptr<MNN::Tensor> unet_sample_host_;
   std::unique_ptr<MNN::Tensor> unet_timestep_host_;
   std::unique_ptr<MNN::Tensor> unet_encoder_host_;
+  std::unique_ptr<MNN::Tensor> unet_encoder_negative_host_;
+  std::unique_ptr<MNN::Tensor> unet_encoder_positive_host_;
   MNN::Tensor *unet_sample_device_ = nullptr;
   MNN::Tensor *unet_timestep_device_ = nullptr;
   MNN::Tensor *unet_encoder_device_ = nullptr;
