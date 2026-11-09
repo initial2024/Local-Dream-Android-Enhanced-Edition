@@ -300,6 +300,11 @@ class BackgroundGenerationService : Service() {
         var nativeVaeMs: Long? = null
         var unetCacheFileBeforeBytes: Long? = null
         var unetCacheFileAfterBytes: Long? = null
+        var nativeUnetStepTimesMs: LongArray? = null
+        var nativeUnetCallTotalMs: Long? = null
+        var nativeSchedulerStepTotalMs: Long? = null
+        var nativeCfgUncondMs: Long? = null
+        var nativeCfgPositiveMs: Long? = null
         val isLocalMnn = BuildConfig.MNN_ONLY_NATIVE && backendHost == LOCAL_BACKEND_HOST
         val beforeSample = if (isLocalMnn) {
             runCatching { InferenceDiagnostics.sample(applicationContext) }.getOrNull()
@@ -349,6 +354,11 @@ class BackgroundGenerationService : Service() {
                     vaeDecodeTimeMs = nativeVaeMs,
                     unetCacheFileBeforeBytes = unetCacheFileBeforeBytes,
                     unetCacheFileAfterBytes = unetCacheFileAfterBytes,
+                    unetStepTimesMs = nativeUnetStepTimesMs,
+                    unetCallTotalMs = nativeUnetCallTotalMs,
+                    schedulerStepTotalMs = nativeSchedulerStepTotalMs,
+                    cfgUncondTotalMs = nativeCfgUncondMs,
+                    cfgPositiveTotalMs = nativeCfgPositiveMs,
                 )
             }.onFailure { Log.w("InferenceMetrics", "Unable to write diagnostics", it) }
         }
@@ -518,6 +528,22 @@ class BackgroundGenerationService : Service() {
                                             message.nonNegativeMetric("unet_cache_file_before_bytes")
                                         unetCacheFileAfterBytes =
                                             message.nonNegativeMetric("unet_cache_file_after_bytes")
+                                        nativeUnetCallTotalMs =
+                                            message.nonNegativeMetric("unet_call_total_ms")
+                                        nativeSchedulerStepTotalMs =
+                                            message.nonNegativeMetric("scheduler_step_total_ms")
+                                        nativeCfgUncondMs =
+                                            message.nonNegativeMetric("cfg_uncond_total_ms")
+                                        nativeCfgPositiveMs =
+                                            message.nonNegativeMetric("cfg_positive_total_ms")
+                                        nativeUnetStepTimesMs =
+                                            message.optJSONArray("unet_step_times_ms")?.let { series ->
+                                                val count = series.length()
+                                                if (count !in 1..50 ||
+                                                    (0 until count).any { series.optLong(it, -1L) < 0L }
+                                                ) null
+                                                else LongArray(count) { series.optLong(it) }
+                                            }
                                     }
 
                                     // 1. Extract fields from JSON
