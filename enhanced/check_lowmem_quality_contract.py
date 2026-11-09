@@ -34,5 +34,16 @@ if "_serial_cfg_quality_recovery" not in source:
     raise SystemExit("LOWMEM QUALITY REGRESSION: MNN OpenCL cache must be isolated")
 if step.index("samp->copyFromHostTensor") > step.index("enc->copyFromHostTensor"):
     raise SystemExit("LOWMEM QUALITY REGRESSION: unexpected MNN input ordering")
+for token in (
+    "Session_Release",
+    "Session_Resize_Defer",
+    "unet_cache_before_bytes_ = cacheFileSize",
+    "unet_cache_after_bytes_ = cacheFileSize",
+):
+    if token not in source:
+        raise SystemExit(f"SAFE GPU CACHE REGRESSION: missing session/cache guard: {token}")
+if source.index("Session_Release") > source.index("Session_Resize_Defer"):
+    raise SystemExit("SAFE GPU CACHE REGRESSION: release mode must be set first")
+print("PASS: release-mode session and cache-file presence diagnostics wired")
 print("PASS: alpha.7 lowmem input sequencing restored; separate tuning cache")
 print("NOTE: real device same-seed image comparison is still required")
