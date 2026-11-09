@@ -141,7 +141,10 @@ class PipelineSd15Cpu : public Pipeline {
     auto enc = unet_interpreter_->getSessionInput(unet_session_,
                                                   "encoder_hidden_states");
 
-    const int batch = req.cfg == 1.0f ? 1 : 2;
+    // Low-memory mode computes CFG negative/positive passes serially.
+    // This halves the UNet activation batch without reducing image size,
+    // steps, CFG or model precision. It can take longer on some GPUs.
+    const int batch = (req.cfg == 1.0f || req.mnn_sequential_cfg) ? 1 : 2;
     const int tokens = text_encoder_.contextLength(req.prompt, req.negative_prompt);
     unet_interpreter_->resizeTensor(samp,
                                     {batch, 4, req.height / 8, req.width / 8});
@@ -174,6 +177,33 @@ class PipelineSd15Cpu : public Pipeline {
     auto *enc_nchw_tensor = unet_encoder_host_.get();
 
     const size_t latent_count = (size_t)4 * (req.height / 8) * (req.width / 8);
+    if (req.mnn_sequential_cfg && !skip_uncond) {
+      // Same CFG equation as batched execution: run unconditional then
+      // positive conditioning with a single-batch MNN session. Outputs
+      // retain the original [uncond, positive] order for the scheduler.
+      const size_t cond_elements = cond.hidden.size() / 2;
+      auto run_half = [&](int half, const float *conditioning) {
+        memcpy(samp_nchw_tensor->host<float>(),
+               latents_batch2 + half * latent_count,
+               latent_count * sizeof(float));
+        memcpy(ts_nchw_tensor->host<int>(), &timestep, sizeof(int));
+        memcpy(enc_nchw_tensor->host<float>(), conditioning,
+               cond_elements * sizeof(float));
+        samp->copyFromHostTensor(samp_nchw_tensor);
+        ts->copyFromHostTensor(ts_nchw_tensor);
+        enc->copyFromHostTensor(enc_nchw_tensor);
+        if (unet_interpreter_->runSession(unet_session_) != 0)
+          throw std::runtime_error("MNN low-memory UNet execution failed");
+        auto output = unet_interpreter_->getSessionOutput(unet_session_,
+                                                         "out_sample");
+        output->copyToHostTensor(samp_nchw_tensor);
+        memcpy(out_batch2 + half * latent_count,
+               samp_nchw_tensor->host<float>(), latent_count * sizeof(float));
+      };
+      run_half(0, cond.negHidden());
+      run_half(1, cond.posHidden());
+      return;
+    }
     const size_t output_count = (skip_uncond ? 1 : 2) * latent_count;
     memcpy(samp_nchw_tensor->host<float>(),
            latents_batch2 + (skip_uncond ? latent_count : 0),
@@ -269,13 +299,23 @@ class PipelineSd15Cpu : public Pipeline {
                                    const char *stage) const {
     MnnSessionOptions opts;
     opts.use_opencl = req.use_opencl;
+    opts.use_gpu_image = req.mnn_use_gpu_image;
     opts.num_threads = cpu_threads_;
     if (req.use_opencl) {
       auto cache_dir = ensureCacheDir(model_dir_);
-      if (!cache_dir.empty())
+      if (!cache_dir.empty()) {
+        // Keep model/geometry, GPU storage mode AND CFG activation batch
+        // separated: an OpenCL tuned cache for batch=2 must not be reused by
+        // the serial-CFG UNet session with batch=1.
+        const std::string profile_suffix = req.mnn_use_gpu_image
+            ? "_img"
+            : (req.mnn_sequential_cfg && std::string(stage) == "unet_cache"
+                   ? "_serial_cfg" : "");
         opts.cache_file =
-            cache_dir + "/" + stage + ".mnnc." + std::to_string(req.width) +
+            cache_dir + "/" + stage + profile_suffix +
+            ".mnnc." + std::to_string(req.width) +
             (req.height == req.width ? "" : "x" + std::to_string(req.height));
+      }
     }
     return opts;
   }

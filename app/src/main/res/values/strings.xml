@@ -557,4 +557,13 @@
     <string name="enhanced_recommendation_license_notice">These are external checkpoint pages, not pre-converted downloads. Confirm author, license and SHA256; open a complete SD1.5 safetensors file using the conversion button above. Device compatibility and quality are unverified.</string>
     <string name="enhanced_one_tap_sd15_note">DreamShaper 8 and Realistic Vision V6 now download like the original five models. Original weights are verified and converted to MNN on this phone. Experimental: keep about 7 GiB free, and check source license.</string>
     <string name="enhanced_one_tap_sd15_confirm">Download %1$s (about 2.13 GB), verify SHA256, and convert offline to MNN? This uses substantial storage/RAM. Existing models will not be overwritten.</string>
+    <string name="enhanced_mnn_gpu_profile_title">GPU memory / speed mode</string>
+    <string name="enhanced_mnn_gpu_auto">Auto</string>
+    <string name="enhanced_mnn_gpu_buffer">Buffer</string>
+    <string name="enhanced_mnn_gpu_lowmem">Low RAM</string>
+    <string name="enhanced_mnn_gpu_image">Image</string>
+    <string name="enhanced_mnn_gpu_profile_hint">Auto preserves the previous Buffer path for 512px and uses single-batch sequential CFG at 640px+. Buffer is the prior faster/more-memory mode. Low RAM reduces peak UNet activation size but may take longer. Image is experimental and can be slower or incompatible on Mali. Compare repeated runs with identical model, seed, steps and CFG; changing mode may slightly change FP16 output. No change to image pixels or sampling steps.</string>
+    <string name="enhanced_reproduce_generate_now">Reproduce with original model and generate</string>
+    <string name="enhanced_mnn_copy_inference_report">Copy recent inference diagnostics (last 20)</string>
+    <string name="enhanced_mnn_report_copied">GPU performance report copied. It contains no prompts or images.</string>
 </resources>

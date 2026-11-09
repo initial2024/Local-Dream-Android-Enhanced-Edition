@@ -55,6 +55,9 @@ struct GenerationRequest {
   unsigned seed = 0;
   std::string scheduler_type = "dpm";
   bool use_opencl = false;
+  // MNN-only SD1.5 choices; ignored by other pipelines.
+  bool mnn_use_gpu_image = false;
+  bool mnn_sequential_cfg = false;
   bool show_diffusion_process = false;
   int show_diffusion_stride = 1;
   int width = 512;

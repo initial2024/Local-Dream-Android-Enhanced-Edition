@@ -546,4 +546,13 @@
     <string name="enhanced_recommendation_license_notice">这些是第三方模型的源页面，不是可直接运行的 MNN 模型。请核验来源、许可及 SHA256，下载完整的 SD1.5 safetensors 后使用上方离线转换。真机兼容性和画质仍待验证。</string>
     <string name="enhanced_one_tap_sd15_note">DreamShaper 8 和 Realistic Vision V6 已加入原有五个模型列表；点击即可下载、校验并在手机上离线转换。此功能仍属实验性，建议预留约 7 GiB 存储空间，并遵守模型授权。</string>
     <string name="enhanced_one_tap_sd15_confirm">下载 %1$s（约 2.13 GB），自动核验 SHA256 并在手机上离线转换为 MNN？转换较耗内存和存储，不会覆盖已有模型。</string>
+    <string name="enhanced_mnn_gpu_profile_title">GPU 内存 / 速度模式</string>
+    <string name="enhanced_mnn_gpu_auto">自动</string>
+    <string name="enhanced_mnn_gpu_buffer">原版高速</string>
+    <string name="enhanced_mnn_gpu_lowmem">省内存</string>
+    <string name="enhanced_mnn_gpu_image">Image 实验</string>
+    <string name="enhanced_mnn_gpu_profile_hint">自动：512 像素保留原 Buffer 路径，640 及以上改为逐次计算正负 CFG，降低 UNet 中间显存占用。原版高速可能更快但更占内存；省内存可能更慢；Image 对 Mali 的速度和兼容性未验证。请用同模型、种子、步数与 CFG 重复实测；模式不同可能带来轻微 FP16 输出差异。不会减少实际生成像素或采样步数。</string>
+    <string name="enhanced_reproduce_generate_now">一键复刻原模型并生成</string>
+    <string name="enhanced_mnn_copy_inference_report">复制最近 20 次生成性能报告</string>
+    <string name="enhanced_mnn_report_copied">性能报告已复制，不包含提示词或图片。</string>
 </resources>

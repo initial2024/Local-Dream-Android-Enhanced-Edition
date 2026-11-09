@@ -3,6 +3,7 @@ package io.github.xororz.localdream.ui.screens
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ClipboardManager
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -142,10 +143,13 @@ import io.github.xororz.localdream.data.GenerationDefaults
 import io.github.xororz.localdream.data.GenerationMode
 import io.github.xororz.localdream.data.GenerationPreferences
 import io.github.xororz.localdream.data.HistoryFilter
+import io.github.xororz.localdream.data.HistoryReplayPolicy
+import io.github.xororz.localdream.data.InferenceDiagnostics
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
 import io.github.xororz.localdream.data.ModelRepository
 import io.github.xororz.localdream.data.MnnCpuThreads
+import io.github.xororz.localdream.data.MnnGpuProfile
 import io.github.xororz.localdream.data.MnnNativeResolution
 import io.github.xororz.localdream.data.ModelStorage
 import io.github.xororz.localdream.data.PatchScanner
@@ -313,6 +317,7 @@ fun ModelRunScreen(
     var showDeleteHistoryDialog by remember { mutableStateOf(false) }
     var showReproduceParamsDialog by remember { mutableStateOf(false) }
     var pendingReproduceParams by remember { mutableStateOf<GenerationParameters?>(null) }
+    var pendingReproduceModelId by remember { mutableStateOf<String?>(null) }
     // Exactly one request per history route; no stale imported parameters
     // can leak into another model when the destination is reused.
     var historyReproduceHandled by remember(historyId) { mutableStateOf(false) }
@@ -453,6 +458,15 @@ fun ModelRunScreen(
         mutableIntStateOf(
             MnnCpuThreads.validated(
                 preferences.getInt(MnnCpuThreads.PREF_KEY, MnnCpuThreads.DEFAULT),
+            ),
+        )
+    }
+    // The GPU profile is a per-install preference and affects the next
+    // generation request (no backend restart and no screen layout change).
+    var mnnGpuProfile by remember {
+        mutableStateOf(
+            MnnGpuProfile.validated(
+                preferences.getString(MnnGpuProfile.PREF_KEY, MnnGpuProfile.AUTO),
             ),
         )
     }
@@ -1501,6 +1515,7 @@ fun ModelRunScreen(
                 // dialog. Never auto-generate a historical img2img/inpaint
                 // sample: original source photo and mask are not retained.
                 pendingReproduceParams = fromHistory.params
+                pendingReproduceModelId = fromHistory.modelId
                 showReproduceParamsDialog = true
             } else {
                 Log.w("ModelRunScreen", "History target missing or belongs to another model")
@@ -1967,6 +1982,198 @@ fun ModelRunScreen(
         }
     }
 
+    fun startStandardGeneration(): Boolean {
+        // Common entry point for the normal Generate button and the vetted
+        // TXT2IMG history replay. Prevent duplicate GPU jobs and stale-state
+        // requests while the previous foreground generation is still active.
+        if (serviceState is GenerationState.Progress || isRunning ||
+            isUpscaling || isUltrafixPreparing || !backendReady ||
+            (selectedImageUri != null && !base64EncodeDone) ||
+            batchGenerationJob?.isActive == true
+        ) return false
+        isRunning = true
+                                focusManager.clearFocus()
+                                pendingUltrafix = false
+                                Log.d(
+                                    "ModelRunScreen",
+                                    "start generation",
+                                )
+                                generationParamsTmp = GenerationParameters(
+                                    steps = steps.roundToInt(),
+                                    cfg = cfg,
+                                    seed = 0,
+                                    prompt = promptField.text,
+                                    negativePrompt = negativePromptField.text,
+                                    generationTime = "",
+                                    width = currentWidth,
+                                    height = currentHeight,
+                                    runOnCpu = model?.runOnCpu ?: false,
+                                    denoiseStrength = denoiseStrength,
+                                    useOpenCL = useOpenCL,
+                                    scheduler = scheduler,
+                                )
+
+                                Log.d(
+                                    "ModelRunScreen",
+                                    "start generation batch: $batchCounts times",
+                                )
+
+                                // If seed is set, only generate once regardless of batch count
+                                val actualBatchCount =
+                                    if (seed.isNotBlank()) 1 else batchCounts
+
+                                batchGenerationJob = coroutineScope.launch {
+                                    // Freeze the selected reference set for the
+                                    // whole batch and persist it immediately
+                                    // before the first service request. This
+                                    // also closes races with rapid thumbnail
+                                    // removals rewriting the scratch file.
+                                    val editReferencePayloads =
+                                        if (supportsReferenceEditing) {
+                                            editReferenceImages.map { it.base64 }
+                                        } else {
+                                            emptyList()
+                                        }
+                                    if (editReferencePayloads.isNotEmpty()) {
+                                        withContext(Dispatchers.IO) {
+                                            val json = JSONArray()
+                                            editReferencePayloads.forEach { json.put(it) }
+                                            File(context.filesDir, "dit_references.json")
+                                                .writeText(json.toString())
+                                        }
+                                    }
+                                    val inactive = withTimeoutOrNull(5000L) {
+                                        BackgroundGenerationService.isServiceRunning.first { !it }
+                                    }
+                                    if (inactive == null) {
+                                        errorMessage = "Previous generation is still closing; retry after it stops"
+                                        currentBatchIndex = 0
+                                        isRunning = false
+                                        return@launch
+                                    }
+                                    BackgroundGenerationService.resetState()
+                                    for (i in 0 until actualBatchCount) {
+                                        currentBatchIndex = i + 1
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "preparing batch $i",
+                                        )
+
+                                        // Update generationParamsTmp to reflect current parameters
+                                        // This allows parameters to be changed during batch execution
+                                        generationParamsTmp = GenerationParameters(
+                                            steps = steps.roundToInt(),
+                                            cfg = cfg,
+                                            seed = 0,
+                                            prompt = promptField.text,
+                                            negativePrompt = negativePromptField.text,
+                                            generationTime = "",
+                                            width = currentWidth,
+                                            height = currentHeight,
+                                            runOnCpu = model?.runOnCpu ?: false,
+                                            denoiseStrength = denoiseStrength,
+                                            useOpenCL = useOpenCL,
+                                            scheduler = scheduler,
+                                        )
+
+                                        val batchIntent = Intent(
+                                            context,
+                                            BackgroundGenerationService::class.java,
+                                        ).apply {
+                                            putExtra("prompt", promptField.text)
+                                            putExtra(
+                                                "negative_prompt",
+                                                negativePromptField.text,
+                                            )
+                                            putExtra("steps", steps.roundToInt())
+                                            putExtra("cfg", cfg)
+                                            seed.toLongOrNull()
+                                                ?.let { putExtra("seed", it) }
+                                            putExtra("width", currentWidth)
+                                            putExtra("height", currentHeight)
+                                            // Backend now crops progress previews to the
+                                            // visible target rectangle, so the service must
+                                            // decode each preview with the effective dims
+                                            // (target_w/h), not the 1024 canvas size.
+                                            putExtra("effective_width", effectiveWidth)
+                                            putExtra("effective_height", effectiveHeight)
+                                            putExtra(
+                                                "denoise_strength",
+                                                denoiseStrength,
+                                            )
+                                            putExtra("use_opencl", useOpenCL)
+                                            putExtra("scheduler", scheduler)
+                                            putExtra("aspect_ratio", aspectRatio)
+                                            putExtra("batch_index", i)
+                                            putExtra("backend_host", backendHost)
+                                            if (editReferencePayloads.isNotEmpty()) {
+                                                putExtra("has_reference_images", true)
+                                            }
+                                            if (selectedImageUri != null && base64EncodeDone) {
+                                                putExtra("has_image", true)
+                                                if (isInpaintMode && maskBitmap != null) {
+                                                    putExtra("has_mask", true)
+                                                }
+                                            }
+                                        }
+
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "start service - batch $i",
+                                        )
+
+                                        context.startForegroundService(batchIntent)
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "start service sent - batch $i",
+                                        )
+
+                                        BackgroundGenerationService.generationState
+                                            .first { state ->
+                                                state is GenerationState.Complete ||
+                                                    state is GenerationState.Error
+                                            }
+
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "batch $i completed, waiting for service to stop",
+                                        )
+
+                                        // Wait for service to actually stop
+                                        val waitStartTime =
+                                            System.currentTimeMillis()
+                                        val stopped = withTimeoutOrNull(5000L) {
+                                            BackgroundGenerationService.isServiceRunning
+                                                .first { !it }
+                                        }
+                                        if (stopped == null) {
+                                            Log.w(
+                                                "ModelRunScreen",
+                                                "Timeout waiting for service to stop",
+                                            )
+                                        }
+
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "service stopped, wait time: ${System.currentTimeMillis() - waitStartTime}ms",
+                                        )
+
+                                        BackgroundGenerationService.resetState()
+                                        Log.d(
+                                            "ModelRunScreen",
+                                            "service state reset, ready for next batch",
+                                        )
+                                    }
+                                    currentBatchIndex = 0
+                                    isRunning = false
+                                    Log.d(
+                                        "ModelRunScreen",
+                                        "all batches completed, isRunning set to false",
+                                    )
+                                }
+        return true
+    }
+
     // === Page Composable Functions ===
     @Composable
     fun PromptPage() {
@@ -2118,6 +2325,8 @@ fun ModelRunScreen(
                                     cfg = cfg,
                                     useOpenCL = useOpenCL,
                                     showMnnCpuThreads = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
+                                    showMnnGpuProfile = BuildConfig.MNN_ONLY_NATIVE && !isRemote,
+                                    gpuProfile = mnnGpuProfile,
                                     showMnnNativeHd = BuildConfig.MNN_ONLY_NATIVE && !isRemote &&
                                         model?.runOnCpu == true && model?.usesFixedCanvas != true,
                                     cpuThreads = mnnCpuThreads,
@@ -2160,6 +2369,33 @@ fun ModelRunScreen(
                                         saveAllFields()
                                     },
                                     onGpuSelected = { showOpenCLWarningDialog = true },
+                                    onCopyInferenceReport = {
+                                        scope.launch {
+                                            val report = withContext(Dispatchers.IO) {
+                                                InferenceDiagnostics.report(context)
+                                            }
+                                            val clipboard = context.getSystemService(
+                                                Context.CLIPBOARD_SERVICE,
+                                            ) as? ClipboardManager
+                                            clipboard?.setPrimaryClip(
+                                                ClipData.newPlainText("Local Dream inference", report),
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.enhanced_mnn_report_copied),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    },
+                                    onGpuProfileChange = { requested ->
+                                        if (!isRunning) {
+                                            mnnGpuProfile = MnnGpuProfile.validated(requested)
+                                            preferences.edit().putString(
+                                                MnnGpuProfile.PREF_KEY,
+                                                mnnGpuProfile,
+                                            ).apply()
+                                        }
+                                    },
                                     onCpuThreadsChange = { requested ->
                                         if (!isRunning) {
                                             mnnCpuThreads = MnnCpuThreads.validated(requested)
@@ -2261,177 +2497,7 @@ fun ModelRunScreen(
                         )
 
                         Button(
-                            onClick = {
-                                focusManager.clearFocus()
-                                pendingUltrafix = false
-                                Log.d(
-                                    "ModelRunScreen",
-                                    "start generation",
-                                )
-                                generationParamsTmp = GenerationParameters(
-                                    steps = steps.roundToInt(),
-                                    cfg = cfg,
-                                    seed = 0,
-                                    prompt = promptField.text,
-                                    negativePrompt = negativePromptField.text,
-                                    generationTime = "",
-                                    width = currentWidth,
-                                    height = currentHeight,
-                                    runOnCpu = model?.runOnCpu ?: false,
-                                    denoiseStrength = denoiseStrength,
-                                    useOpenCL = useOpenCL,
-                                    scheduler = scheduler,
-                                )
-
-                                Log.d(
-                                    "ModelRunScreen",
-                                    "start generation batch: $batchCounts times",
-                                )
-
-                                // If seed is set, only generate once regardless of batch count
-                                val actualBatchCount =
-                                    if (seed.isNotBlank()) 1 else batchCounts
-
-                                batchGenerationJob = coroutineScope.launch {
-                                    // Freeze the selected reference set for the
-                                    // whole batch and persist it immediately
-                                    // before the first service request. This
-                                    // also closes races with rapid thumbnail
-                                    // removals rewriting the scratch file.
-                                    val editReferencePayloads =
-                                        if (supportsReferenceEditing) {
-                                            editReferenceImages.map { it.base64 }
-                                        } else {
-                                            emptyList()
-                                        }
-                                    if (editReferencePayloads.isNotEmpty()) {
-                                        withContext(Dispatchers.IO) {
-                                            val json = JSONArray()
-                                            editReferencePayloads.forEach { json.put(it) }
-                                            File(context.filesDir, "dit_references.json")
-                                                .writeText(json.toString())
-                                        }
-                                    }
-                                    for (i in 0 until actualBatchCount) {
-                                        currentBatchIndex = i + 1
-                                        Log.d(
-                                            "ModelRunScreen",
-                                            "preparing batch $i",
-                                        )
-
-                                        // Update generationParamsTmp to reflect current parameters
-                                        // This allows parameters to be changed during batch execution
-                                        generationParamsTmp = GenerationParameters(
-                                            steps = steps.roundToInt(),
-                                            cfg = cfg,
-                                            seed = 0,
-                                            prompt = promptField.text,
-                                            negativePrompt = negativePromptField.text,
-                                            generationTime = "",
-                                            width = currentWidth,
-                                            height = currentHeight,
-                                            runOnCpu = model?.runOnCpu ?: false,
-                                            denoiseStrength = denoiseStrength,
-                                            useOpenCL = useOpenCL,
-                                            scheduler = scheduler,
-                                        )
-
-                                        val batchIntent = Intent(
-                                            context,
-                                            BackgroundGenerationService::class.java,
-                                        ).apply {
-                                            putExtra("prompt", promptField.text)
-                                            putExtra(
-                                                "negative_prompt",
-                                                negativePromptField.text,
-                                            )
-                                            putExtra("steps", steps.roundToInt())
-                                            putExtra("cfg", cfg)
-                                            seed.toLongOrNull()
-                                                ?.let { putExtra("seed", it) }
-                                            putExtra("width", currentWidth)
-                                            putExtra("height", currentHeight)
-                                            // Backend now crops progress previews to the
-                                            // visible target rectangle, so the service must
-                                            // decode each preview with the effective dims
-                                            // (target_w/h), not the 1024 canvas size.
-                                            putExtra("effective_width", effectiveWidth)
-                                            putExtra("effective_height", effectiveHeight)
-                                            putExtra(
-                                                "denoise_strength",
-                                                denoiseStrength,
-                                            )
-                                            putExtra("use_opencl", useOpenCL)
-                                            putExtra("scheduler", scheduler)
-                                            putExtra("aspect_ratio", aspectRatio)
-                                            putExtra("batch_index", i)
-                                            putExtra("backend_host", backendHost)
-                                            if (editReferencePayloads.isNotEmpty()) {
-                                                putExtra("has_reference_images", true)
-                                            }
-                                            if (selectedImageUri != null && base64EncodeDone) {
-                                                putExtra("has_image", true)
-                                                if (isInpaintMode && maskBitmap != null) {
-                                                    putExtra("has_mask", true)
-                                                }
-                                            }
-                                        }
-
-                                        Log.d(
-                                            "ModelRunScreen",
-                                            "start service - batch $i",
-                                        )
-
-                                        context.startForegroundService(batchIntent)
-                                        Log.d(
-                                            "ModelRunScreen",
-                                            "start service sent - batch $i",
-                                        )
-
-                                        BackgroundGenerationService.generationState
-                                            .first { state ->
-                                                state is GenerationState.Complete ||
-                                                    state is GenerationState.Error
-                                            }
-
-                                        Log.d(
-                                            "ModelRunScreen",
-                                            "batch $i completed, waiting for service to stop",
-                                        )
-
-                                        // Wait for service to actually stop
-                                        val waitStartTime =
-                                            System.currentTimeMillis()
-                                        val stopped = withTimeoutOrNull(5000L) {
-                                            BackgroundGenerationService.isServiceRunning
-                                                .first { !it }
-                                        }
-                                        if (stopped == null) {
-                                            Log.w(
-                                                "ModelRunScreen",
-                                                "Timeout waiting for service to stop",
-                                            )
-                                        }
-
-                                        Log.d(
-                                            "ModelRunScreen",
-                                            "service stopped, wait time: ${System.currentTimeMillis() - waitStartTime}ms",
-                                        )
-
-                                        BackgroundGenerationService.resetState()
-                                        Log.d(
-                                            "ModelRunScreen",
-                                            "service state reset, ready for next batch",
-                                        )
-                                    }
-                                    currentBatchIndex = 0
-                                    isRunning = false
-                                    Log.d(
-                                        "ModelRunScreen",
-                                        "all batches completed, isRunning set to false",
-                                    )
-                                }
-                            },
+                            onClick = { startStandardGeneration() },
                             enabled = serviceState !is GenerationState.Progress &&
                                 !isRunning && !isUpscaling && !isUltrafixPreparing &&
                                 (selectedImageUri == null || base64EncodeDone),
@@ -3316,6 +3382,7 @@ fun ModelRunScreen(
             onReproduce = {
                 generationParams?.let {
                     pendingReproduceParams = it
+                    pendingReproduceModelId = generationParamsModelId
                     showParametersDialog = false
                     showReproduceParamsDialog = true
                 }
@@ -3818,6 +3885,7 @@ fun ModelRunScreen(
             },
             onReproduce = {
                 pendingReproduceParams = selectedHistoryItem!!.params
+                pendingReproduceModelId = selectedHistoryItem!!.modelId
                 showHistoryParametersDialog = false
                 showReproduceParamsDialog = true
             },
@@ -3828,9 +3896,31 @@ fun ModelRunScreen(
     // Reproduce parameters dialog
     if (showReproduceParamsDialog && pendingReproduceParams != null) {
         val params = pendingReproduceParams!!
+        val canReproduceNow = HistoryReplayPolicy.canAutoGenerate(
+            sourceModelId = pendingReproduceModelId,
+            activeModelId = modelId,
+            mode = params.mode,
+            seed = params.seed,
+            width = params.width,
+            height = params.height,
+            steps = params.steps,
+            cfg = params.cfg,
+            modelDownloaded = model?.isDownloaded == true,
+            mnnOnly = BuildConfig.MNN_ONLY_NATIVE,
+            runOnCpu = model?.runOnCpu == true,
+            remote = isRemote,
+            backendReady = backendReady,
+            busy = isRunning || isUpscaling || isUltrafixPreparing ||
+                serviceState is GenerationState.Progress ||
+                BackgroundGenerationService.isServiceRunning.value,
+            hasInputImageOrReferences = selectedImageUri != null ||
+                editReferenceImages.isNotEmpty() || isInpaintMode,
+        )
         ReproduceParametersDialog(
             params = params,
-            onApply = { selectedFields ->
+            canQuickReproduce = canReproduceNow,
+            onApply = { selectedFields, launchAfterApply ->
+                if (launchAfterApply && !canReproduceNow) return@ReproduceParametersDialog
                 if (ParamShareField.PROMPT in selectedFields) {
                     promptField.replaceText(params.prompt)
                 }
@@ -3892,12 +3982,17 @@ fun ModelRunScreen(
                             aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
                         }
                         model?.runOnCpu == true && model?.usesFixedCanvas != true -> {
-                            val size = params.width
-                            if (params.width == params.height &&
-                                size in 128..512 && size % 64 == 0
-                            ) {
-                                currentWidth = size
-                                currentHeight = size
+                            val legalCanvas =
+                                if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) {
+                                    MnnNativeResolution.isAllowed(params.width, params.height)
+                                } else {
+                                    params.width == params.height &&
+                                        params.width in 128..512 && params.width % 64 == 0
+                                }
+                            if (legalCanvas) {
+                                currentWidth = params.width
+                                currentHeight = params.height
+                                aspectRatio = inferAspectRatioString(currentWidth, currentHeight)
                             }
                         }
                         model?.usesFixedCanvas != true && model?.runOnCpu == false -> {
@@ -3918,19 +4013,32 @@ fun ModelRunScreen(
                         clearImg2imgState()
                     }
                 }
+                if (launchAfterApply) {
+                    // The full replay preserves CPU/OpenCL selection and the
+                    // saved model's native resolution; partial field imports
+                    // intentionally leave the current runtime untouched.
+                    useOpenCL = params.useOpenCL
+                    batchCounts = 1
+                    clearImg2imgState()
+                }
                 saveAllFields()
 
                 showReproduceParamsDialog = false
                 pendingReproduceParams = null
+                pendingReproduceModelId = null
                 showHistoryDetailDialog = false
                 selectedHistoryItem = null
                 scope.launch {
                     pagerState.animateScrollToPage(0)
                 }
+                if (launchAfterApply && !startStandardGeneration()) {
+                    errorMessage = "Model backend is not ready to reproduce yet; parameters were restored"
+                }
             },
             onDismiss = {
                 showReproduceParamsDialog = false
                 pendingReproduceParams = null
+                pendingReproduceModelId = null
                 showHistoryDetailDialog = false
                 selectedHistoryItem = null
             },
