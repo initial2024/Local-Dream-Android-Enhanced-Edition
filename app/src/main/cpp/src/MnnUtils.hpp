@@ -70,7 +70,6 @@ inline MNN::Interpreter *createMnnInterpreterMmap(const char *path) {
 struct MnnSessionOptions {
   bool use_opencl = false;
   bool use_gpu_image = false;
-  bool use_tuning_normal = false;
   std::string cache_file;  // OpenCL tuning cache path ("" = no cache file)
   int num_threads = 4;
 };
@@ -86,10 +85,10 @@ inline MNN::Session *createMnnSession(MNN::Interpreter *interpreter,
       interpreter->setCacheFile(opts.cache_file.c_str());
     }
     config.type = MNN_FORWARD_OPENCL;
-    // FAST initializes quickly; NORMAL can yield better warm inference on
-    // some devices but must be explicitly opted in and A/B benchmarked.
+    // Mali real-device evidence showed NORMAL increased setup 7.4s->130s
+    // and slowed the actual denoising loop. Never expose NORMAL here.
     config.mode = (opts.use_gpu_image ? MNN_GPU_MEMORY_IMAGE : MNN_GPU_MEMORY_BUFFER) |
-                  (opts.use_tuning_normal ? MNN_GPU_TUNING_NORMAL : MNN_GPU_TUNING_FAST);
+                  MNN_GPU_TUNING_FAST;
     backendConfig.precision = MNN::BackendConfig::Precision_Low;
   } else {
     config.type = MNN_FORWARD_CPU;
