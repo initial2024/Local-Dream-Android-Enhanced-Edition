@@ -2,6 +2,7 @@
 #define PIPELINESD15CPU_HPP
 
 #include <MNN/Interpreter.hpp>
+#include <climits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -27,6 +28,9 @@ class PipelineSd15Cpu : public Pipeline {
         vae_encoder_path_(std::move(vae_encoder_path)) {}
 
   bool initialize() override { return true; }
+  std::pair<long long, long long> unetOpenClCacheFileBytes() const override {
+    return {unet_cache_before_bytes_, unet_cache_after_bytes_};
+  }
 
   bool supportsImg2Img() const override { return !vae_encoder_path_.empty(); }
 
@@ -130,9 +134,16 @@ class PipelineSd15Cpu : public Pipeline {
       throw std::runtime_error(
           "Failed to create temporary MNN UNET interpreter!");
 
+    // The release mode only suppresses debug callback bookkeeping; all
+    // tensor math, lowmem CFG pass ordering and GPU precision are unchanged.
+    unet_interpreter_->setSessionMode(MNN::Interpreter::Session_Release);
     unet_interpreter_->setSessionMode(MNN::Interpreter::Session_Resize_Defer);
-    unet_session_ =
-        createMnnSession(unet_interpreter_, sessionOptions(req, "unet_cache"));
+    auto opts = sessionOptions(req, "unet_cache");
+    // Absence/presence is grounded in filesystem metadata only. MNN may
+    // reject an existing cache internally, so NEVER label it a cache hit.
+    unet_cache_before_bytes_ = cacheFileSize(opts.cache_file);
+    unet_cache_after_bytes_ = -1;
+    unet_session_ = createMnnSession(unet_interpreter_, opts);
     if (!unet_session_)
       throw std::runtime_error("Failed to create temporary MNN UNET session!");
 
@@ -151,7 +162,14 @@ class PipelineSd15Cpu : public Pipeline {
     unet_interpreter_->resizeTensor(ts, {1});
     unet_interpreter_->resizeTensor(enc, {batch, tokens, text_embedding_size});
     unet_interpreter_->resizeSession(unet_session_);
-    if (req.use_opencl) unet_interpreter_->updateCacheFile(unet_session_);
+    if (req.use_opencl) {
+      const auto update = unet_interpreter_->updateCacheFile(unet_session_);
+      unet_cache_after_bytes_ = cacheFileSize(opts.cache_file);
+      std::cout << "UNet OpenCL cache file bytes before="
+                << unet_cache_before_bytes_ << " after="
+                << unet_cache_after_bytes_ << " (not a validated hit);"
+                << " updateCode=" << static_cast<int>(update) << std::endl;
+    }
 
     unet_interpreter_->releaseModel();
 
@@ -311,6 +329,15 @@ class PipelineSd15Cpu : public Pipeline {
   }
 
  private:
+  static long long cacheFileSize(const std::string &name) {
+    if (name.empty()) return -1;
+    std::error_code error;
+    const auto bytes = std::filesystem::file_size(name, error);
+    if (error) return -1;
+    // No conversion overflow for an ordinary bounded GPU kernel cache.
+    if (bytes > static_cast<std::uintmax_t>(LLONG_MAX)) return -1;
+    return static_cast<long long>(bytes);
+  }
   // Each OpenCL cache must be keyed by the actual MNN tensor geometry.
   // Preserve the legacy per-width cache name for square canvases; for
   // rectangular HD sizes distinguish width AND height so incompatible
@@ -340,6 +367,8 @@ class PipelineSd15Cpu : public Pipeline {
     return opts;
   }
 
+  long long unet_cache_before_bytes_ = -1;
+  long long unet_cache_after_bytes_ = -1;
   const int cpu_threads_;
   const std::string clip_path_;
   const std::string unet_path_;
