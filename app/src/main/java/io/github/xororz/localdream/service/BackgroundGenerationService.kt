@@ -13,6 +13,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.graphics.createBitmap
 import io.github.xororz.localdream.R
+import io.github.xororz.localdream.BuildConfig
+import io.github.xororz.localdream.data.MnnGpuProfile
 import io.github.xororz.localdream.utils.Http
 import java.io.BufferedReader
 import java.io.File
@@ -308,6 +310,17 @@ class BackgroundGenerationService : Service() {
                 put("height", height)
                 put("denoise_strength", denoiseStrength)
                 put("use_opencl", useOpenCL)
+                if (BuildConfig.MNN_ONLY_NATIVE && useOpenCL &&
+                    backendHost == LOCAL_BACKEND_HOST
+                ) {
+                    val profile = MnnGpuProfile.effective(
+                        preferences.getString(MnnGpuProfile.PREF_KEY, MnnGpuProfile.AUTO),
+                        width, height,
+                    )
+                    put("mnn_gpu_profile", profile)
+                    // Never log prompts or private images with diagnostics.
+                    Log.i("MnnGpuProfile", "size=${width}x${height} profile=$profile")
+                }
                 put("scheduler", scheduler)
                 // Ultrafix never streams previews: each one would tile-decode
                 // the full image (the backend rejects it as well).
