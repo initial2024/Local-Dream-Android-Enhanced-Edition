@@ -28,6 +28,10 @@ class PipelineSd15Cpu : public Pipeline {
         vae_encoder_path_(std::move(vae_encoder_path)) {}
 
   bool initialize() override { return true; }
+  std::pair<int, int> cfgHalfTimesMs() const override {
+    if (!cfg_halves_measured_) return {-1, -1};
+    return {cfg_negative_total_ms_, cfg_positive_total_ms_};
+  }
   std::pair<long long, long long> unetOpenClCacheFileBytes() const override {
     return {unet_cache_before_bytes_, unet_cache_after_bytes_};
   }
@@ -181,6 +185,9 @@ class PipelineSd15Cpu : public Pipeline {
     unet_output_device_ =
         unet_interpreter_->getSessionOutput(unet_session_, "out_sample");
     unet_encoder_uploaded_ = false;
+    cfg_negative_total_ms_ = 0;
+    cfg_positive_total_ms_ = 0;
+    cfg_halves_measured_ = false;
 
     // MNN host-side staging tensors are the same shapes for every diffusion
     // step in one run. Allocate once after resize, not three new/delete pairs
@@ -214,6 +221,7 @@ class PipelineSd15Cpu : public Pipeline {
       // retain the original [uncond, positive] order for the scheduler.
       const size_t cond_elements = cond.hidden.size() / 2;
       auto run_half = [&](int half, const float *conditioning) {
+        const auto pass_start = std::chrono::steady_clock::now();
         memcpy(samp_nchw_tensor->host<float>(),
                latents_batch2 + half * latent_count,
                latent_count * sizeof(float));
@@ -228,6 +236,12 @@ class PipelineSd15Cpu : public Pipeline {
         unet_output_device_->copyToHostTensor(samp_nchw_tensor);
         memcpy(out_batch2 + half * latent_count,
                samp_nchw_tensor->host<float>(), latent_count * sizeof(float));
+        const int pass_ms = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - pass_start).count());
+        if (half == 0) cfg_negative_total_ms_ += pass_ms;
+        else cfg_positive_total_ms_ += pass_ms;
+        cfg_halves_measured_ = true;
       };
       run_half(0, cond.negHidden());
       run_half(1, cond.posHidden());
@@ -385,6 +399,9 @@ class PipelineSd15Cpu : public Pipeline {
   MNN::Tensor *unet_encoder_device_ = nullptr;
   MNN::Tensor *unet_output_device_ = nullptr;
   bool unet_encoder_uploaded_ = false;
+  bool cfg_halves_measured_ = false;
+  int cfg_negative_total_ms_ = 0;
+  int cfg_positive_total_ms_ = 0;
 };
 
 #endif  // PIPELINESD15CPU_HPP
