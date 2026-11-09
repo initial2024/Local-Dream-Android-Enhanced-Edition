@@ -192,7 +192,7 @@
     <string name="random_seed">Random Seed (Optional)</string>
     <string name="use_last_seed">Use Last Seed (%s)</string>
     <string name="batch_count">Batch Count: %d</string>
-    <string name="reproduce">Reproduce</string>
+    <string name="reproduce">Restore parameters</string>
     <string name="reproduce_params_title">Reproduce Parameters</string>
     <string name="reproduce_params_hint">Pick the fields to apply to the prompt page.</string>
     <string name="select_all">Select all</string>
