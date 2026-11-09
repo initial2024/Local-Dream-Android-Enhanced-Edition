@@ -298,6 +298,8 @@ class BackgroundGenerationService : Service() {
         var nativeUnetSetupMs: Long? = null
         var nativeDenoiseMs: Long? = null
         var nativeVaeMs: Long? = null
+        var unetCacheFileBeforeBytes: Long? = null
+        var unetCacheFileAfterBytes: Long? = null
         val isLocalMnn = BuildConfig.MNN_ONLY_NATIVE && backendHost == LOCAL_BACKEND_HOST
         val beforeSample = if (isLocalMnn) {
             runCatching { InferenceDiagnostics.sample(applicationContext) }.getOrNull()
@@ -345,6 +347,8 @@ class BackgroundGenerationService : Service() {
                     unetSetupTimeMs = nativeUnetSetupMs,
                     denoiseLoopTimeMs = nativeDenoiseMs,
                     vaeDecodeTimeMs = nativeVaeMs,
+                    unetCacheFileBeforeBytes = unetCacheFileBeforeBytes,
+                    unetCacheFileAfterBytes = unetCacheFileAfterBytes,
                 )
             }.onFailure { Log.w("InferenceMetrics", "Unable to write diagnostics", it) }
         }
@@ -510,6 +514,10 @@ class BackgroundGenerationService : Service() {
                                         nativeUnetSetupMs = message.nonNegativeMetric("unet_setup_time_ms")
                                         nativeDenoiseMs = message.nonNegativeMetric("denoise_loop_time_ms")
                                         nativeVaeMs = message.nonNegativeMetric("vae_decode_time_ms")
+                                        unetCacheFileBeforeBytes =
+                                            message.nonNegativeMetric("unet_cache_file_before_bytes")
+                                        unetCacheFileAfterBytes =
+                                            message.nonNegativeMetric("unet_cache_file_after_bytes")
                                     }
 
                                     // 1. Extract fields from JSON

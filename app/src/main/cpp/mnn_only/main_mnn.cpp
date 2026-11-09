@@ -309,8 +309,11 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
                     }
                   });
 
+              const auto unet_cache = pipeline.unetOpenClCacheFileBytes();
               const nlohmann::json completed = {
                   {"type", "complete"},
+                  {"unet_cache_file_before_bytes", unet_cache.first},
+                  {"unet_cache_file_after_bytes", unet_cache.second},
                   {"image", encodeImage(result, input->output_format)},
                   {"format", input->output_format},
                   {"seed", input->seed},
