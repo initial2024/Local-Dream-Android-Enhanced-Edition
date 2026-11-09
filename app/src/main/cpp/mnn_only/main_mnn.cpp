@@ -326,6 +326,11 @@ void registerGenerate(httplib::Server &server, Pipeline &pipeline) {
                   {"unet_setup_time_ms", result.unet_setup_time_ms},
                   {"denoise_loop_time_ms", result.denoise_loop_time_ms},
                   {"vae_decode_time_ms", result.vae_decode_time_ms},
+                  {"unet_step_times_ms", result.unet_step_times_ms},
+                  {"unet_call_total_ms", result.unet_call_total_ms},
+                  {"scheduler_step_total_ms", result.scheduler_step_total_ms},
+                  {"cfg_uncond_total_ms", result.cfg_uncond_total_ms},
+                  {"cfg_positive_total_ms", result.cfg_positive_total_ms},
               };
               const std::string wire =
                   "event: complete\ndata: " + completed.dump() + "\n\n";
