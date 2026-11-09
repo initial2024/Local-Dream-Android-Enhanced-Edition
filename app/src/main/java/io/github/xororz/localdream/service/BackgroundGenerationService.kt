@@ -15,6 +15,7 @@ import androidx.core.graphics.createBitmap
 import io.github.xororz.localdream.R
 import io.github.xororz.localdream.BuildConfig
 import io.github.xororz.localdream.data.MnnGpuProfile
+import io.github.xororz.localdream.data.InferenceDiagnostics
 import io.github.xororz.localdream.utils.Http
 import java.io.BufferedReader
 import java.io.File
@@ -290,6 +291,43 @@ class BackgroundGenerationService : Service() {
         // preparation and first denoising step. It is separate from the total
         // request time, and never stores prompts or private image content.
         var firstProgressMs: Long? = null
+        val isLocalMnn = BuildConfig.MNN_ONLY_NATIVE && backendHost == LOCAL_BACKEND_HOST
+        val beforeSample = if (isLocalMnn) {
+            runCatching { InferenceDiagnostics.sample(applicationContext) }.getOrNull()
+        } else null
+        val runtimePrefs = applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        val requestedProfile = runtimePrefs.getString(
+            MnnGpuProfile.PREF_KEY, MnnGpuProfile.AUTO,
+        )
+        val effectiveProfile = if (isLocalMnn && useOpenCL) {
+            if (MnnGpuProfile.validated(requestedProfile) == MnnGpuProfile.AUTO &&
+                beforeSample?.let { InferenceDiagnostics.memoryPressure(it) } == true
+            ) {
+                // Shared system RAM is stressed by other foreground apps.
+                // Preserve 512px Auto Buffer only when there is headroom.
+                MnnGpuProfile.LOW_MEMORY
+            } else MnnGpuProfile.effective(requestedProfile, width, height)
+        } else "cpu"
+
+        fun saveDiagnostic(success: Boolean) {
+            val start = beforeSample ?: return
+            runCatching {
+                InferenceDiagnostics.record(
+                    context = applicationContext,
+                    modelId = BackendService.servingModelId.value ?: "unknown",
+                    width = width,
+                    height = height,
+                    steps = steps,
+                    opencl = useOpenCL,
+                    profile = effectiveProfile,
+                    elapsedMs = SystemClock.elapsedRealtime() - generationStartMs,
+                    firstProgressMs = firstProgressMs,
+                    started = start,
+                    finished = InferenceDiagnostics.sample(applicationContext),
+                    success = success,
+                )
+            }.onFailure { Log.w("InferenceMetrics", "Unable to write diagnostics", it) }
+        }
         try {
             updateState(GenerationState.Progress(0f))
 
@@ -310,16 +348,9 @@ class BackgroundGenerationService : Service() {
                 put("height", height)
                 put("denoise_strength", denoiseStrength)
                 put("use_opencl", useOpenCL)
-                if (BuildConfig.MNN_ONLY_NATIVE && useOpenCL &&
-                    backendHost == LOCAL_BACKEND_HOST
-                ) {
-                    val profile = MnnGpuProfile.effective(
-                        preferences.getString(MnnGpuProfile.PREF_KEY, MnnGpuProfile.AUTO),
-                        width, height,
-                    )
-                    put("mnn_gpu_profile", profile)
-                    // Never log prompts or private images with diagnostics.
-                    Log.i("MnnGpuProfile", "size=${width}x${height} profile=$profile")
+                if (isLocalMnn && useOpenCL) {
+                    put("mnn_gpu_profile", effectiveProfile)
+                    Log.i("MnnGpuProfile", "size=${width}x${height} profile=$effectiveProfile")
                 }
                 put("scheduler", scheduler)
                 // Ultrafix never streams previews: each one would tile-decode
@@ -531,6 +562,7 @@ class BackgroundGenerationService : Service() {
                                         ),
                                     )
                                     val wallMs = SystemClock.elapsedRealtime() - generationStartMs
+                                    saveDiagnostic(success = true)
                                     Log.i(
                                         "InferenceMetrics",
                                         "completed duration_ms=$wallMs " +
@@ -596,6 +628,7 @@ class BackgroundGenerationService : Service() {
                 updateState(GenerationState.Idle)
             } else {
                 Log.e("GenerationService", "generation error", e)
+                saveDiagnostic(success = false)
                 Log.i(
                     "InferenceMetrics",
                     "failed duration_ms=${SystemClock.elapsedRealtime() - generationStartMs} " +
