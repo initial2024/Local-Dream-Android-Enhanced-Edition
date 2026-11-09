@@ -90,6 +90,7 @@ internal fun AdvancedSettingsDialog(
     onGpuSelected: () -> Unit,
     onCpuThreadsChange: (Int) -> Unit = {},
     onGpuProfileChange: (String) -> Unit = {},
+    onCopyInferenceReport: () -> Unit = {},
     onBatchCountsChange: (Float) -> Unit,
     onDenoiseStrengthChange: (Float) -> Unit,
     onSeedChange: (String) -> Unit,
@@ -499,6 +500,9 @@ internal fun AdvancedSettingsDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        TextButton(onClick = onCopyInferenceReport) {
+                            Text(stringResource(R.string.enhanced_mnn_copy_inference_report))
+                        }
                     }
                 }
                 if (showMnnCpuThreads && runOnCpu && !useOpenCL) {
