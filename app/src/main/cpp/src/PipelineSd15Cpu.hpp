@@ -315,7 +315,6 @@ class PipelineSd15Cpu : public Pipeline {
     MnnSessionOptions opts;
     opts.use_opencl = req.use_opencl;
     opts.use_gpu_image = req.mnn_use_gpu_image;
-    opts.use_tuning_normal = req.mnn_tuning_normal;
     opts.num_threads = cpu_threads_;
     if (req.use_opencl) {
       auto cache_dir = ensureCacheDir(model_dir_);
@@ -329,7 +328,6 @@ class PipelineSd15Cpu : public Pipeline {
                    ? "_serial_cfg" : "");
         opts.cache_file =
             cache_dir + "/" + stage + profile_suffix +
-            (req.mnn_tuning_normal ? "_tuning_normal" : "") +
             ".mnnc." + std::to_string(req.width) +
             (req.height == req.width ? "" : "x" + std::to_string(req.height));
       }
