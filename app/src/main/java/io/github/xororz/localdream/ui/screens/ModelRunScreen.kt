@@ -3,6 +3,7 @@ package io.github.xororz.localdream.ui.screens
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ClipboardManager
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -143,6 +144,7 @@ import io.github.xororz.localdream.data.GenerationMode
 import io.github.xororz.localdream.data.GenerationPreferences
 import io.github.xororz.localdream.data.HistoryFilter
 import io.github.xororz.localdream.data.HistoryReplayPolicy
+import io.github.xororz.localdream.data.InferenceDiagnostics
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.data.HistoryManager
 import io.github.xororz.localdream.data.ModelRepository
@@ -2367,6 +2369,24 @@ fun ModelRunScreen(
                                         saveAllFields()
                                     },
                                     onGpuSelected = { showOpenCLWarningDialog = true },
+                                    onCopyInferenceReport = {
+                                        scope.launch {
+                                            val report = withContext(Dispatchers.IO) {
+                                                InferenceDiagnostics.report(context)
+                                            }
+                                            val clipboard = context.getSystemService(
+                                                Context.CLIPBOARD_SERVICE,
+                                            ) as? ClipboardManager
+                                            clipboard?.setPrimaryClip(
+                                                ClipData.newPlainText("Local Dream inference", report),
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.enhanced_mnn_report_copied),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    },
                                     onGpuProfileChange = { requested ->
                                         if (!isRunning) {
                                             mnnGpuProfile = MnnGpuProfile.validated(requested)
