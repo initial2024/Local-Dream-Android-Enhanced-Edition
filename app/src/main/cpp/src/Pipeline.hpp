@@ -891,6 +891,13 @@ inline std::string Pipeline::renderPreview(const GenerationRequest &req,
     xt::xarray<float> pixels =
         decodeToPixels(req, preview_latents, /*verbose=*/false);
 
+    if (req.use_opencl) {
+      for (float value : pixels) {
+        if (!std::isfinite(value))
+          throw std::runtime_error(
+              "GPU VAE returned non-finite values; output discarded");
+      }
+    }
     std::vector<uint8_t> out_data = pixelsToBytes(pixels);
     int preview_w = req.width;
     int preview_h = req.height;
@@ -1145,6 +1152,18 @@ inline GenerationResult Pipeline::generate(
           xt::xarray<float> uncond = xt::view(noise_pred_batch, 0);
           xt::xarray<float> txt = xt::view(noise_pred_batch, 1);
           noise_pred = xt::eval(uncond + req.cfg * (txt - uncond));
+        }
+      }
+
+      // Numerical integrity gate: a driver/backend returning NaN/Inf must
+      // never be reported as a successful generated image. This is not a
+      // semantic image-quality classifier; finite chromatic noise still
+      // requires independent real-device image inspection.
+      if (req.use_opencl) {
+        for (float value : noise_pred) {
+          if (!std::isfinite(value))
+            throw std::runtime_error(
+                "GPU UNet returned non-finite values; output discarded");
         }
       }
 
