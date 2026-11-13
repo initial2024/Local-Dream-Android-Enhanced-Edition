@@ -28,7 +28,19 @@ internal fun AspectImageExportDialog(
     onDismiss: () -> Unit,
     onSave: (Int, ImageSaveFormat) -> Unit,
 ) {
-    var exportPercent by remember(bitmap) { mutableStateOf(100) }
+    // Default to larger output pixel dimensions if the low-memory budget allows.
+    // This is interpolation, not AI neural super-resolution.
+    var exportPercent by remember(bitmap) {
+        mutableStateOf(
+            listOf(200, 150, 100).first { percent ->
+                runCatching {
+                    HighDefinitionOutput.aspectExportDimensions(
+                        bitmap.width, bitmap.height, percent,
+                    )
+                }.isSuccess
+            },
+        )
+    }
     var exportFormat by remember(bitmap) { mutableStateOf(ImageSaveFormat.PNG) }
     val dimensions = listOf(100, 150, 200).associateWith { percent ->
         runCatching {
