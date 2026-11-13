@@ -90,10 +90,11 @@ class HistoryManager(private val context: Context) {
             val timestamp = System.currentTimeMillis()
             val historyDir = getHistoryDir(modelId)
 
-            // Upscaled and ultrafixed opaque images are 4x-class resolutions;
-            // store them as JPEG. Transparent Qwen results must remain PNG.
+            // New local MNN AI 4x outputs remain lossless in image history.
+            // Legacy upscaler/ultrafix JPEG policy is retained for old engines.
             val isUpscaled = upscalerId != null || mode == GenerationMode.ULTRAFIX
-            val useJpeg = isUpscaled && !bitmap.hasAlpha()
+            val isMnnNeuralSr = upscalerId?.startsWith("upscaler_mnn_") == true
+            val useJpeg = isUpscaled && !bitmap.hasAlpha() && !isMnnNeuralSr
             val ext = if (useJpeg) "jpg" else "png"
             val imageFile = File(historyDir, "$timestamp.$ext")
             FileOutputStream(imageFile).use { out ->
