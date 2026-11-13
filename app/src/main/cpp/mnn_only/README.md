@@ -21,7 +21,7 @@ This directory contains an **independent native executable target**, not a modif
 | SD1.5 img2img/inpaint | Inherited code | Pending native CI | No |
 | SDXL MNN | No (existing class inherits QNN code) | No | No |
 | Qualcomm QNN / DiT | Intentionally excluded | Not applicable | Not applicable |
-| MNN upscaler | Currently returns HTTP 501 | No | No |
+| MNN 4x AI upscaler | Offline tiled inference; separate model download | CI pending | No |
 | Wi-Fi remote host | Disabled: original host transport lacks authentication | Not applicable | No |
 | Real AI video | Not implemented | No | No |
 
@@ -45,3 +45,9 @@ The Android app's native service expects a local executable under `nativeLibrary
 6. Release workflow must verify real native binary, original license notices, and matching signing certificate before distributing an APK.
 
 For model-format and chipset gates, see [P0 GitHub issue](https://github.com/initial2024/Local-Dream-Android-Enhanced-Edition/issues/1).
+
+## Offline 4x AI super-resolution (alpha.13 candidate)
+
+The MNN-only ARM64 backend now offers a real neural `POST /upscale` endpoint in normal SD1.5 and standalone `--upscaler_mode` processes. The Android UI downloads real `.mnn` graphs on demand from `tumuyan2/realsr-models/models-MNNSR`: RealESRGAN anime 6B and ESRGAN Nomos8kSC. New `upscaler_mnn_*` IDs isolate them from incompatible Qualcomm-specific QNN `upscaler_min.bin` binaries. The models are **not** added to the installer.
+
+The native input is packed 8-bit RGB; output is **PNG**, not JPEG. Both stand-alone output and saved MNN neural history retain lossless PNG. Processing uses 192px source tiles, 24px overlap with weighted merges, OpenCL-first and CPU fallback. The 640x640 input safety limit gives at most a 2560x2560 output and bounds intermediary allocations; larger images require pre-resize or more memory-tested streaming work. Runs are offline on loopback 127.0.0.1, without transmitting pictures or prompts. No quality claims, thermal/RSS benchmark, or verified Mali speed until actual handset testing; unsupported graphs fail rather than silently doing ordinary interpolation. Original images are not overwritten.
