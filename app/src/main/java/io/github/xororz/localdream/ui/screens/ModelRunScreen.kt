@@ -161,6 +161,7 @@ import io.github.xororz.localdream.data.TagMatchType
 import io.github.xororz.localdream.data.TagSuggestion
 import io.github.xororz.localdream.data.UpscalerRepository
 import io.github.xororz.localdream.service.BackendService
+import io.github.xororz.localdream.service.MnnBackendHandoff
 import io.github.xororz.localdream.service.BackgroundGenerationService
 import io.github.xororz.localdream.service.BackgroundGenerationService.GenerationState
 import io.github.xororz.localdream.ui.components.BlockingProgressOverlay
@@ -3850,89 +3851,113 @@ fun ModelRunScreen(
         )
     }
 
-    // Upscaler dialog
+    // MNN-only low-memory SR uses the SAME native backend service as SD.
+    // The controller first reaps the diffusion child, then starts SR on 8081,
+    // restores SD after inference, and never runs both heavy MNN models.
     if (showUpscalerDialog) {
         UpscalerPickerFlow(
             modelId = modelId,
             upscalerRepository = upscalerRepository,
             upscalerPreferences = upscalerPreferences,
             upscalersOverride = if (isRemote) remoteRepository.remoteUpscalers() else null,
+            allowReplaceOriginal = BuildConfig.MNN_ONLY_NATIVE && !isRemote &&
+                currentDisplayedHistoryId != null,
             onDismiss = { showUpscalerDialog = false },
-            onUpscalerConfirmed = { selectedUpscaler, selectedScale ->
+            onUpscalerConfirmed = { selectedUpscaler, selectedScale, replaceOriginal ->
                 showUpscalerDialog = false
-
-                // Execute upscale
-                currentBitmap?.let { bitmap ->
-                    // If the source image is stitch-eligible (an inpaint result or
-                    // an upscaled copy of one), its upscaled copy is too.
-                    val sourceIsStitchable =
-                        currentDisplayedHistoryId != null &&
-                            currentDisplayedHistoryId in stitchableHistoryIds
+                val originalBitmap = currentBitmap
+                val originalHistoryId = currentDisplayedHistoryId
+                if (originalBitmap != null && !isUpscaling && !isRunning) {
+                    val sourceIsStitchable = originalHistoryId != null &&
+                        originalHistoryId in stitchableHistoryIds
                     isUpscaling = true
+                    val useExclusive = BuildConfig.MNN_ONLY_NATIVE && !isRemote
+                    if (useExclusive) backendReady = false
                     scope.launch {
+                        var updatedBitmap: Bitmap? = null
+                        var storedInResult = false
                         try {
-                            val upscaledBitmap = performUpscale(
-                                context = context,
-                                bitmap = bitmap,
-                                upscalerId = selectedUpscaler.id,
-                                targetScale = selectedScale,
-                                backendHost = backendHost,
-                                remoteUpscalerPath = if (isRemote) {
-                                    remoteRepository.upscalerPaths[selectedUpscaler.id]
-                                } else {
-                                    null
-                                },
-                            )
-
-                            // Save upscaled image via HistoryManager (DB + JPG file)
-                            generationParams?.let { params ->
-                                scope.launch(Dispatchers.IO) {
-                                    try {
-                                        val updatedParams = params.copy(
-                                            width = upscaledBitmap.width,
-                                            height = upscaledBitmap.height,
-                                        )
-                                        // The displayed image's params carry its
-                                        // generation mode (set on completion and
-                                        // by every history-load path), so the
-                                        // upscaled copy inherits the right one.
-                                        val sourceMode = params.mode
-                                        val saved = historyManager.saveGeneratedImage(
-                                            modelId = modelId,
-                                            bitmap = upscaledBitmap,
-                                            params = updatedParams,
-                                            mode = sourceMode,
-                                            upscalerId = selectedUpscaler.id,
-                                        )
-                                        if (saved != null) {
-                                            withContext(Dispatchers.Main) {
-                                                currentBitmap = upscaledBitmap
-                                                generationParams = updatedParams
-                                                generationParamsModelId = modelId
-                                                currentDisplayedHistoryId = saved.id
-                                                if (sourceIsStitchable) {
-                                                    stitchableHistoryIds =
-                                                        stitchableHistoryIds + saved.id
-                                                }
-                                                imageVersion++
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e(
-                                            "ModelRunScreen",
-                                            "Failed to save upscaled image",
-                                            e,
-                                        )
-                                    }
-                                }
+                            if (useExclusive) {
+                                check(withTimeoutOrNull(10000L) {
+                                    BackgroundGenerationService.isServiceRunning.first { !it }
+                                } != null) { "Generation is still active; cannot enter AI SR mode" }
                             }
+                            updatedBitmap = if (useExclusive) {
+                                MnnBackendHandoff.withGenerationRestored(
+                                    context = context,
+                                    modelId = modelId,
+                                    backendType = model?.backendType ?: "sd15cpu",
+                                    width = currentWidth,
+                                    height = currentHeight,
+                                ) {
+                                    performUpscale(
+                                        context = context,
+                                        bitmap = originalBitmap,
+                                        upscalerId = selectedUpscaler.id,
+                                        targetScale = selectedScale,
+                                        backendHost = backendHost,
+                                    )
+                                }
+                            } else {
+                                performUpscale(
+                                    context = context,
+                                    bitmap = originalBitmap,
+                                    upscalerId = selectedUpscaler.id,
+                                    targetScale = selectedScale,
+                                    backendHost = backendHost,
+                                    remoteUpscalerPath = if (isRemote) {
+                                        remoteRepository.upscalerPaths[selectedUpscaler.id]
+                                    } else null,
+                                )
+                            }
+                            val resultBitmap = requireNotNull(updatedBitmap)
+                            val params = generationParams
+                                ?: throw IllegalStateException("Missing parameters for AI SR history")
+                            val upgradedParams = params.copy(
+                                width = resultBitmap.width,
+                                height = resultBitmap.height,
+                            )
+                            val saved = if (replaceOriginal && originalHistoryId != null) {
+                                historyManager.replaceWithUpscaledImage(
+                                    sourceId = originalHistoryId,
+                                    modelId = modelId,
+                                    bitmap = resultBitmap,
+                                    upscalerId = selectedUpscaler.id,
+                                )
+                            } else {
+                                historyManager.saveGeneratedImage(
+                                    modelId = modelId,
+                                    bitmap = resultBitmap,
+                                    params = upgradedParams,
+                                    mode = params.mode,
+                                    upscalerId = selectedUpscaler.id,
+                                )
+                            } ?: throw IllegalStateException(
+                                "AI output was not saved; original history image is unchanged",
+                            )
+                            currentBitmap = resultBitmap
+                            storedInResult = true
+                            generationParams = upgradedParams
+                            generationParamsModelId = modelId
+                            currentDisplayedHistoryId = saved.id
+                            if (sourceIsStitchable) {
+                                stitchableHistoryIds = stitchableHistoryIds + saved.id
+                            }
+                            imageVersion++
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Toast.makeText(
                                 context,
                                 msgUpscaleFailed.format(e.message ?: "Unknown error"),
-                                Toast.LENGTH_SHORT,
+                                Toast.LENGTH_LONG,
                             ).show()
                         } finally {
+                            if (!storedInResult) updatedBitmap?.takeIf { !it.isRecycled }?.recycle()
+                            if (useExclusive) {
+                                backendReady = BackendService.servingModelId.value == modelId &&
+                                    BackendService.backendState.value is BackendService.BackendState.Running
+                            }
                             isUpscaling = false
                         }
                     }
