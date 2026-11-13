@@ -130,6 +130,7 @@ class BackendService : Service() {
             // host mode's /status so a controller only declares Ready once the
             // backend matches its full config, not just the model id.
             val _servingResolution = MutableStateFlow<Pair<Int, Int>?>(null)
+            val _nativePid = MutableStateFlow<Long?>(null)
         }
 
         val backendState: StateFlow<BackendState> = StateHolder._backendState
@@ -137,6 +138,7 @@ class BackendService : Service() {
         val servingModelId: StateFlow<String?> = StateHolder._servingModelId
 
         val servingResolution: StateFlow<Pair<Int, Int>?> = StateHolder._servingResolution
+        val nativePid: StateFlow<Long?> = StateHolder._nativePid
 
         private fun updateState(state: BackendState) {
             StateHolder._backendState.value = state
@@ -754,6 +756,7 @@ class BackendService : Service() {
 
             val proc = processBuilder.start()
             process = proc
+            StateHolder._nativePid.value = proc.pid()
 
             startMonitorThread(proc)
 
@@ -844,7 +847,10 @@ class BackendService : Service() {
                 // one might still own the same port and MNN/OpenCL allocations.
                 return false
             } finally {
-                if (!proc.isAlive) process = null
+                if (!proc.isAlive) {
+                    process = null
+                    StateHolder._nativePid.value = null
+                }
             }
         }
         serving = null
