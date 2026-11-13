@@ -36,6 +36,18 @@ interface HistoryDao {
     @Query("SELECT * FROM generation_history WHERE id = :id")
     suspend fun getById(id: Long): HistoryEntity?
 
+    // CAS prevents replacing an image whose path was changed by another
+    // operation. Preserve original history ID, favorite, prompt and seed.
+    @Query(
+        "UPDATE generation_history SET imagePath = :newPath, width = :width, " +
+            "height = :height, upscalerId = :upscalerId " +
+            "WHERE id = :id AND modelId = :modelId AND imagePath = :oldPath",
+    )
+    suspend fun replaceImageIfCurrent(
+        id: Long, modelId: String, oldPath: String, newPath: String,
+        width: Int, height: Int, upscalerId: String,
+    ): Int
+
     @Query("UPDATE generation_history SET favorite = :favorite WHERE id = :id")
     suspend fun setFavorite(id: Long, favorite: Boolean): Int
 
