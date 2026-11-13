@@ -568,4 +568,7 @@
     <string name="enhanced_export_jpeg">JPEG · 质量 98，文件较小</string>
     <string name="enhanced_export_notice">放大采用插值，不是 AI 超分；模型原生生成像素不变。额外位图最多约占 16 MiB。</string>
     <string name="enhanced_export_confirm">保存图片</string>
+    <string name="enhanced_sr_replace_original">替换原历史图片（不另建记录）</string>
+    <string name="enhanced_sr_replace_warning">替换成功后将删除旧图文件，保持原记录和收藏状态；失败时保留原图。相册外部文件不会被改动。</string>
+    <string name="enhanced_sr_save_default">将本次选择设为以后默认选项</string>
 </resources>
