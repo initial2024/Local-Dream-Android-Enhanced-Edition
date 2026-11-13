@@ -206,8 +206,8 @@ class BackendService : Service() {
             ACTION_STOP, ACTION_STOP_NOW -> serviceScope.launch {
                 requestStop(
                     startId = startId,
-                    expectedModelId = intent.getStringExtra(EXTRA_EXPECTED_MODEL_ID),
-                    immediate = intent.action == ACTION_STOP_NOW,
+                    expectedModelId = intent?.getStringExtra(EXTRA_EXPECTED_MODEL_ID),
+                    immediate = intent?.action == ACTION_STOP_NOW,
                 )
             }
 
