@@ -19,6 +19,9 @@ object BackendCompatibility {
         compatibleHexagon: Boolean,
         mnnOnlyBuild: Boolean = false,
     ): String? = when {
+        // The MNN-only executable also ships a separately validated SR entry.
+        // It performs local 4x inference without QNN/Hexagon dependencies.
+        mnnOnlyBuild && backendType == "upscaler" -> null
         mnnOnlyBuild && backendType != "sd15cpu" ->
             "This MNN-only build currently supports SD1.5 CPU/OpenCL only; " +
                 "other native backends are still under development."
