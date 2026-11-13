@@ -52,6 +52,7 @@ import io.github.xororz.localdream.navigation.popBackStackIfResumed
 import io.github.xororz.localdream.remote.RemoteProtocol
 import io.github.xororz.localdream.service.BackendService
 import io.github.xororz.localdream.service.BackgroundGenerationService
+import io.github.xororz.localdream.service.MnnBackendHandoff
 import io.github.xororz.localdream.service.ModelDownloadService
 import io.github.xororz.localdream.ui.components.BlockingProgressOverlay
 import io.github.xororz.localdream.ui.components.SmoothCircularWavyProgressIndicator
@@ -339,7 +340,9 @@ fun UpscaleScreen(navController: NavController, modifier: Modifier = Modifier) {
                     delay(1000)
                 }
             }
-        } else {
+        } else if (!BuildConfig.MNN_ONLY_NATIVE) {
+            // The MNN SR backend is acquired only while inference runs.
+            // Do not leave it consuming RAM while users select an image.
             startUpscalerBackend()
         }
     }
@@ -348,7 +351,7 @@ fun UpscaleScreen(navController: NavController, modifier: Modifier = Modifier) {
         onDispose {
             if (isRemote) {
                 remoteRepository.stopHostBackendAsync(RemoteProtocol.UPSCALER_MODEL_ID)
-            } else {
+            } else if (!BuildConfig.MNN_ONLY_NATIVE) {
                 stopUpscalerBackend()
             }
         }
@@ -781,18 +784,28 @@ fun UpscaleScreen(navController: NavController, modifier: Modifier = Modifier) {
                         isUpscaling = true
                         scope.launch {
                             try {
-                                val resultBitmap = performUpscale(
-                                    context = context,
-                                    bitmap = bitmap,
-                                    upscalerId = selectedUpscaler.id,
-                                    targetScale = targetScale,
-                                    backendHost = backendHost,
-                                    remoteUpscalerPath = if (isRemote) {
-                                        remoteRepository.upscalerPaths[selectedUpscaler.id]
-                                    } else {
-                                        null
-                                    },
-                                )
+                                val resultBitmap = if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) {
+                                    MnnBackendHandoff.withStandalone(context) {
+                                        performUpscale(
+                                            context = context,
+                                            bitmap = bitmap,
+                                            upscalerId = selectedUpscaler.id,
+                                            targetScale = targetScale,
+                                            backendHost = backendHost,
+                                        )
+                                    }
+                                } else {
+                                    performUpscale(
+                                        context = context,
+                                        bitmap = bitmap,
+                                        upscalerId = selectedUpscaler.id,
+                                        targetScale = targetScale,
+                                        backendHost = backendHost,
+                                        remoteUpscalerPath = if (isRemote) {
+                                            remoteRepository.upscalerPaths[selectedUpscaler.id]
+                                        } else null,
+                                    )
+                                }
                                 upscaledBitmap = resultBitmap
 
                                 resultBitmap.let { bmp ->
