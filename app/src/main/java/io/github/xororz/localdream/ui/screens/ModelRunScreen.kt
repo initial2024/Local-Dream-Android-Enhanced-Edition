@@ -3345,14 +3345,15 @@ fun ModelRunScreen(
                             recentHistory = recentHistory,
                             showReportButton = BuildConfig.FLAVOR == "filter",
                             // Upscaling is only offered for the NPU runtime and resolutions <= 1024.
-                            // A CPU diffusion backend never initializes the QNN
-                            // runtime, so its /upscale cannot load the .bin
-                            // upscaler; that holds for the host's backend too.
-                            // Remote mode additionally needs an upscaler
-                            // installed on the host.
-                            showUpscaleButton = !model.runOnCpu &&
+                            // MNN-only CPU/OpenCL diffusion can run the new
+                            // independent local neural SR endpoint. Legacy
+                            // QNN models keep their original non-CPU gate.
+                            showUpscaleButton = (BuildConfig.MNN_ONLY_NATIVE || !model.runOnCpu) &&
                                 (!isRemote || remoteRepository.upscalerPaths.isNotEmpty()) &&
-                                generationParams?.let { maxOf(it.width, it.height) <= 1024 } == true,
+                                generationParams?.let {
+                                    maxOf(it.width, it.height) <=
+                                        (if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) 640 else 1024)
+                                } == true,
                             upscaleEnabled = !isRunning && !isUpscaling && !isUltrafixPreparing,
                             // Ultrafix takes over where upscaling stops: SDXL
                             // only (SD1.5 quality was not worth it), restricted
@@ -4000,9 +4001,10 @@ fun ModelRunScreen(
         val detailItem = selectedHistoryItem
         val detailIdle = !isRunning && !isUpscaling && !isUltrafixPreparing
         val detailCanUpscale = historyBitmap != null && detailItem != null &&
-            detailIdle && model?.runOnCpu == false &&
+            detailIdle && (BuildConfig.MNN_ONLY_NATIVE || model?.runOnCpu == false) &&
             (!isRemote || remoteRepository.upscalerPaths.isNotEmpty()) &&
-            maxOf(detailItem.params.width, detailItem.params.height) <= 1024
+            maxOf(detailItem.params.width, detailItem.params.height) <=
+                (if (BuildConfig.MNN_ONLY_NATIVE && !isRemote) 640 else 1024)
         val detailCanUltrafix = historyBitmap != null && detailItem != null &&
             detailIdle && useImg2img && model?.isSdxl == true && cfg == 1f &&
             maxOf(detailItem.params.width, detailItem.params.height) > 1024 &&
