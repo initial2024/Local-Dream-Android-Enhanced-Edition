@@ -140,6 +140,79 @@ class HistoryManager(private val context: Context) {
         }
     }
 
+    /**
+     * Replaces one app-owned history item after user explicitly selects
+     * "Replace original". Stage PNG in the SAME directory and flush before
+     * CAS-updating the Room row. The original remains intact if encoding,
+     * renaming or the DB update fails. After a successful update, deleting the
+     * old file is best-effort; never delete it before the DB points to a
+     * complete new PNG. Gallery files outside our history are never touched.
+     */
+    suspend fun replaceWithUpscaledImage(
+        sourceId: Long,
+        modelId: String,
+        bitmap: Bitmap,
+        upscalerId: String,
+    ): HistoryItem? = withContext(Dispatchers.IO) {
+        if (!upscalerId.startsWith("upscaler_mnn_") ||
+            bitmap.isRecycled || bitmap.width < 1 || bitmap.height < 1
+        ) return@withContext null
+        val current = dao.getById(sourceId)
+        if (current == null || current.modelId != modelId) return@withContext null
+        val oldImage = File(filesDir, current.imagePath)
+        if (!oldImage.isFile) return@withContext null
+        val dir = getHistoryDir(modelId)
+        val unique = "${System.currentTimeMillis()}-${System.nanoTime()}"
+        val staged = File(dir, "$unique.staging")
+        val destination = File(dir, "$unique-sr.png")
+        var committed = false
+        try {
+            // PNG compression may fail silently; never commit a partial file.
+            FileOutputStream(staged).use { out ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                    "Failed to encode neural SR PNG"
+                }
+                out.fd.sync()
+            }
+            check(staged.length() > 0L && staged.renameTo(destination)) {
+                "Failed to finalize staged neural SR image"
+            }
+            val relative = "history/$modelId/${destination.name}"
+            check(dao.replaceImageIfCurrent(
+                id = sourceId,
+                modelId = modelId,
+                oldPath = current.imagePath,
+                newPath = relative,
+                width = bitmap.width,
+                height = bitmap.height,
+                upscalerId = upscalerId,
+            ) == 1) {
+                "Original history item changed during AI enhancement"
+            }
+            committed = true
+            if (oldImage.canonicalPath != destination.canonicalPath &&
+                !oldImage.delete()
+            ) {
+                Log.w("HistoryManager", "AI replacement retained orphaned old file")
+            }
+            HistoryItem.fromEntity(
+                filesDir,
+                current.copy(
+                    imagePath = relative,
+                    width = bitmap.width,
+                    height = bitmap.height,
+                    upscalerId = upscalerId,
+                ),
+            )
+        } catch (error: Exception) {
+            Log.e("HistoryManager", "AI replacement aborted; original kept", error)
+            null
+        } finally {
+            staged.delete()
+            if (!committed) destination.delete()
+        }
+    }
+
     suspend fun setFavorite(id: Long, favorite: Boolean): Boolean = withContext(Dispatchers.IO) {
         try {
             dao.setFavorite(id, favorite) > 0
