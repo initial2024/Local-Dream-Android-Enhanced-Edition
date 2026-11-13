@@ -4,6 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.TimeoutCancellationException
@@ -71,10 +76,26 @@ object MnnBackendHandoff {
         context: Context, modelId: String, backendType: String,
         width: Int, height: Int, operation: suspend () -> T,
     ): T {
+        val audit = MnnSrMemoryAudit(context)
+        audit.sample("before_sd_to_sr", persist = true)
         try {
             requestStart(context, SR_MODEL_ID, BackendService.BACKEND_TYPE_UPSCALER, 512, 512)
             awaitServing(SR_MODEL_ID)
-            return operation()
+            audit.sample("sr_engine_started", persist = true)
+            return coroutineScope {
+                val sampler = launch(Dispatchers.IO) {
+                    while (currentCoroutineContext().isActive) {
+                        audit.sample("sr_running")
+                        delay(700L)
+                    }
+                }
+                try {
+                    operation()
+                } finally {
+                    sampler.cancelAndJoin()
+                    audit.sample("sr_operation_finished", persist = true)
+                }
+            }
         } finally {
             // A cancelled screen has no owner to receive the restored model.
             // Leave no native backend resident after navigation away.
@@ -82,12 +103,15 @@ object MnnBackendHandoff {
             withContext(NonCancellable) {
                 if (!ownerStillActive) {
                     requestStop(context)
+                    audit.sample("sr_cancelled_stop_queued", persist = true)
                 } else {
                     requestStart(context, modelId, backendType, width, height)
                     try {
                         awaitServing(modelId)
+                        audit.sample("sd_restored", persist = true)
                     } catch (e: Exception) {
                         Log.e(TAG, "MNN generation restore failed", e)
+                        audit.sample("sd_restore_failed", persist = true)
                         throw e
                     }
                 }
@@ -97,12 +121,31 @@ object MnnBackendHandoff {
 
     /** Standalone upscale page: start on demand and stop immediately on exit. */
     suspend fun <T> withStandalone(context: Context, operation: suspend () -> T): T {
+        val audit = MnnSrMemoryAudit(context)
+        audit.sample("standalone_before_sr", persist = true)
         try {
             requestStart(context, SR_MODEL_ID, BackendService.BACKEND_TYPE_UPSCALER, 512, 512)
             awaitServing(SR_MODEL_ID)
-            return operation()
+            audit.sample("standalone_sr_started", persist = true)
+            return coroutineScope {
+                val sampler = launch(Dispatchers.IO) {
+                    while (currentCoroutineContext().isActive) {
+                        audit.sample("standalone_sr_running")
+                        delay(700L)
+                    }
+                }
+                try {
+                    operation()
+                } finally {
+                    sampler.cancelAndJoin()
+                    audit.sample("standalone_sr_finished", persist = true)
+                }
+            }
         } finally {
-            withContext(NonCancellable) { requestStop(context) }
+            withContext(NonCancellable) {
+                requestStop(context)
+                audit.sample("standalone_sr_stop_queued", persist = true)
+            }
         }
     }
 }
