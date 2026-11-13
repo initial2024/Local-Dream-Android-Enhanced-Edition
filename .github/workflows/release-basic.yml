@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/src/main/java/**'
+      - 'app/src/main/res/**'
+      - 'app/src/test/**'
+      - 'app/build.gradle.kts'
       - 'app/src/main/cpp/src/PipelineSd15Cpu.hpp'
       - 'app/src/main/cpp/mnn_only/**'
       - 'app/src/main/java/io/github/xororz/localdream/service/BackendService.kt'

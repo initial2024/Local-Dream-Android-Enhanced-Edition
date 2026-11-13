@@ -1,13 +1,8 @@
 name: Fast signed MNN device-test from pinned native artifact
 
+# Manual-only until the native core is rebuilt and its artifact SHA re-pinned.
+# Never silently reuse an older native binary after native source changes.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/fast-mnn-signed-test.yml'
-      - 'app/src/main/java/**'
-      - 'app/src/main/res/**'
-      - 'app/build.gradle.kts'
   workflow_dispatch:
 
 permissions:
