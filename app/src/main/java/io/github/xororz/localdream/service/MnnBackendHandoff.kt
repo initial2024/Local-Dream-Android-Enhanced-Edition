@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -74,15 +76,20 @@ object MnnBackendHandoff {
             awaitServing(SR_MODEL_ID)
             return operation()
         } finally {
-            // Never leave the screen facing the SR backend after failure.
-            // Restoration itself must not be cancelled by the original UI job.
+            // A cancelled screen has no owner to receive the restored model.
+            // Leave no native backend resident after navigation away.
+            val ownerStillActive = currentCoroutineContext().isActive
             withContext(NonCancellable) {
-                requestStart(context, modelId, backendType, width, height)
-                try {
-                    awaitServing(modelId)
-                } catch (e: Exception) {
-                    Log.e(TAG, "MNN generation restore failed", e)
-                    throw e
+                if (!ownerStillActive) {
+                    requestStop(context)
+                } else {
+                    requestStart(context, modelId, backendType, width, height)
+                    try {
+                        awaitServing(modelId)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "MNN generation restore failed", e)
+                        throw e
+                    }
                 }
             }
         }
