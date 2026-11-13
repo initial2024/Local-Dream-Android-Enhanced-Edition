@@ -151,21 +151,25 @@ suspend fun performUpscale(
         backendHost == BackgroundGenerationService.LOCAL_BACKEND_HOST) {
         MnnUpscalePolicy.resultSize(width, height)
     }
-    val pixels = IntArray(width * height)
-    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
+    // Process one scanline at a time: previous code allocated an entire
+    // ARGB int-array copy alongside RGB bytes and the model's output bitmap.
+    val rowPixels = IntArray(width)
     val rgbBytes = ByteArray(width * height * 3)
     val alphaBytes = if (bitmap.hasAlpha()) ByteArray(width * height) else null
     var hasTransparency = false
-    for (i in pixels.indices) {
-        val pixel = pixels[i]
-        rgbBytes[i * 3] = ((pixel shr 16) and 0xFF).toByte()
-        rgbBytes[i * 3 + 1] = ((pixel shr 8) and 0xFF).toByte()
-        rgbBytes[i * 3 + 2] = (pixel and 0xFF).toByte()
-        alphaBytes?.let {
-            val alpha = (pixel ushr 24) and 0xFF
-            it[i] = alpha.toByte()
-            if (alpha != 0xFF) hasTransparency = true
+    for (y in 0 until height) {
+        bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1)
+        for (x in 0 until width) {
+            val i = y * width + x
+            val pixel = rowPixels[x]
+            rgbBytes[i * 3] = ((pixel shr 16) and 0xFF).toByte()
+            rgbBytes[i * 3 + 1] = ((pixel shr 8) and 0xFF).toByte()
+            rgbBytes[i * 3 + 2] = (pixel and 0xFF).toByte()
+            alphaBytes?.let {
+                val alpha = (pixel ushr 24) and 0xFF
+                it[i] = alpha.toByte()
+                if (alpha != 0xFF) hasTransparency = true
+            }
         }
     }
     Log.d(
@@ -188,21 +192,17 @@ suspend fun performUpscale(
             throw Exception("Upscale failed with response code: ${response.code}, error: $errorBody")
         }
 
-        // Read JPEG binary data
-        val readStartTime = System.currentTimeMillis()
-        val imageBytes = response.body?.bytes() ?: throw Exception("Empty upscale response")
-        Log.d(
-            "UpscaleBinary",
-            "Receive JPEG data took: ${System.currentTimeMillis() - readStartTime}ms, size: ${imageBytes.size / 1024}KB",
-        )
-
-        // Decode JPEG to Bitmap
+        // Decode the network response directly from its stream. Keeping
+        // PNG bytes plus the decoded full-size Bitmap doubled peak Java memory.
+        // This works for both neural PNG and legacy JPEG endpoints.
         val decodeStartTime = System.currentTimeMillis()
-        var resultBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            ?: throw Exception("Failed to decode JPEG response")
+        val body = response.body ?: throw Exception("Empty upscale response")
+        var resultBitmap = body.byteStream().use { stream ->
+            BitmapFactory.decodeStream(stream)
+        } ?: throw Exception("Could not decode upscale output")
         Log.d(
             "UpscaleBinary",
-            "Decode JPEG took: ${System.currentTimeMillis() - decodeStartTime}ms",
+            "Stream decode PNG/JPEG took: ${System.currentTimeMillis() - decodeStartTime}ms",
         )
 
         val resultWidth =
