@@ -77,7 +77,8 @@ object HighDefinitionOutput {
         }
         val width = ((sourceWidth.toLong() * percent + 50L) / 100L).toInt()
         val height = ((sourceHeight.toLong() * percent + 50L) / 100L).toInt()
-        require(width.toLong() * height <= MAX_ASPECT_EXPORT_PIXELS) {
+        // 100% export reuses the source bitmap; no second pixel buffer.
+        require(percent == 100 || width.toLong() * height <= MAX_ASPECT_EXPORT_PIXELS) {
             "Export exceeds low-memory pixel budget"
         }
         return width to height
