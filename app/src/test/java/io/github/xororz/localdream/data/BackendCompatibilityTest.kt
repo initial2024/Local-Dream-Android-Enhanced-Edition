@@ -42,7 +42,11 @@ class BackendCompatibilityTest {
                 mnnOnlyBuild = true,
             ),
         )
-        for (backend in listOf("sdxlmnn", "sd15npu", "sdxl", "upscaler",
+        assertNull(BackendCompatibility.rejection(
+            "upscaler", qualcommSoc = false, compatibleHexagon = false,
+            mnnOnlyBuild = true,
+        ))
+        for (backend in listOf("sdxlmnn", "sd15npu", "sdxl",
             "anima", "zimage", "klein", "qwen21", "krea2turbo")) {
             val reason = BackendCompatibility.rejection(
                 backend, qualcommSoc = true, compatibleHexagon = true,
