@@ -1403,6 +1403,7 @@ fun ModelRunScreen(
                 // the pending start, mirroring BackgroundGenerationService.stop().
                 val backendServiceIntent = Intent(context, BackendService::class.java)
                     .setAction(BackendService.ACTION_STOP)
+                    .putExtra(BackendService.EXTRA_EXPECTED_MODEL_ID, modelId)
                 context.startForegroundService(backendServiceIntent)
             }
             isRunning = false
