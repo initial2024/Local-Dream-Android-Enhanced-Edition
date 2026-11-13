@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.FilterList
@@ -53,6 +54,7 @@ import io.github.xororz.localdream.ui.components.GenerationParamsDialog
 import io.github.xororz.localdream.ui.components.OverlayIconButton
 import io.github.xororz.localdream.ui.components.ShareParamsFlow
 import io.github.xororz.localdream.ui.components.ZoomableImageOverlay
+import io.github.xororz.localdream.utils.AspectImageExport
 import io.github.xororz.localdream.utils.saveImage
 import io.github.xororz.localdream.utils.saveImageFromFile
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +109,7 @@ fun HistoryScreen(navController: NavController) {
 
     var previewItem by remember { mutableStateOf<HistoryItem?>(null) }
     var showParamsDialog by remember { mutableStateOf(false) }
+    var showHdExportDialog by remember { mutableStateOf(false) }
     var showShareDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -250,7 +253,10 @@ fun HistoryScreen(navController: NavController) {
         }
         ZoomableImageOverlay(
             bitmap = previewBitmap,
-            onDismiss = { previewItem = null },
+            onDismiss = {
+                showHdExportDialog = false
+                previewItem = null
+            },
             topEndContent = {
                 OverlayIconButton(
                     icon = Icons.Default.Info,
@@ -272,6 +278,11 @@ fun HistoryScreen(navController: NavController) {
                             historyManager.setFavorite(item.id, !item.favorite)
                         }
                     },
+                )
+                OverlayIconButton(
+                    icon = Icons.Default.Image,
+                    contentDescription = "Export old image: scale and quality",
+                    onClick = { showHdExportDialog = true },
                 )
                 OverlayIconButton(
                     icon = Icons.Default.Save,
@@ -309,6 +320,31 @@ fun HistoryScreen(navController: NavController) {
                 )
             },
         )
+
+        if (showHdExportDialog && previewBitmap != null) {
+            val oldBitmap = previewBitmap!!
+            AspectImageExportDialog(
+                bitmap = oldBitmap,
+                onDismiss = { showHdExportDialog = false },
+                onSave = { percent, format ->
+                    showHdExportDialog = false
+                    scope.launch {
+                        AspectImageExport.save(
+                            context = context,
+                            bitmap = oldBitmap,
+                            percent = percent,
+                            format = format,
+                            onSuccess = {
+                                Toast.makeText(context, msgImageSaved, Toast.LENGTH_SHORT).show()
+                            },
+                            onError = { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            },
+                        )
+                    }
+                },
+            )
+        }
 
         if (showParamsDialog) {
             GenerationParamsDialog(

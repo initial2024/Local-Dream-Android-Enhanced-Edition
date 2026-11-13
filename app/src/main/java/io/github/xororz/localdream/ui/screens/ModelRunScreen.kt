@@ -173,6 +173,7 @@ import io.github.xororz.localdream.ui.components.SmoothLinearWavyProgressIndicat
 import io.github.xororz.localdream.ui.components.ZoomableImageOverlay
 import io.github.xororz.localdream.ui.theme.Motion
 import io.github.xororz.localdream.utils.HighDefinitionOutput
+import io.github.xororz.localdream.utils.AspectImageExport
 import io.github.xororz.localdream.utils.ImageSaveFormat
 import io.github.xororz.localdream.utils.ImportedParams
 import io.github.xororz.localdream.utils.LogCapture
@@ -316,6 +317,7 @@ fun ModelRunScreen(
     var showHistoryFilterSheet by remember { mutableStateOf(false) }
     var selectedHistoryItem by remember { mutableStateOf<HistoryItem?>(null) }
     var showHistoryDetailDialog by remember { mutableStateOf(false) }
+    var showHistoricalHdExport by remember { mutableStateOf(false) }
     var showHistoryParametersDialog by remember { mutableStateOf(false) }
     var showDeleteHistoryDialog by remember { mutableStateOf(false) }
     var showReproduceParamsDialog by remember { mutableStateOf(false) }
@@ -3988,6 +3990,7 @@ fun ModelRunScreen(
             }
         }
         val dismissDetail = {
+            showHistoricalHdExport = false
             showHistoryDetailDialog = false
             selectedHistoryItem = null
         }
@@ -4071,6 +4074,11 @@ fun ModelRunScreen(
                     )
                 }
                 OverlayIconButton(
+                    icon = Icons.Default.Image,
+                    contentDescription = "Export old image: scale and quality",
+                    onClick = { showHistoricalHdExport = true },
+                )
+                OverlayIconButton(
                     icon = Icons.Default.Save,
                     contentDescription = "Save to gallery",
                     onClick = {
@@ -4101,6 +4109,30 @@ fun ModelRunScreen(
                 )
             },
         )
+        if (showHistoricalHdExport && historyBitmap != null) {
+            val oldBitmap = historyBitmap!!
+            AspectImageExportDialog(
+                bitmap = oldBitmap,
+                onDismiss = { showHistoricalHdExport = false },
+                onSave = { percent, format ->
+                    showHistoricalHdExport = false
+                    scope.launch {
+                        AspectImageExport.save(
+                            context = context,
+                            bitmap = oldBitmap,
+                            percent = percent,
+                            format = format,
+                            onSuccess = {
+                                Toast.makeText(context, msgImageSaved, Toast.LENGTH_SHORT).show()
+                            },
+                            onError = { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            },
+                        )
+                    }
+                },
+            )
+        }
     }
 
     // History parameters dialog
