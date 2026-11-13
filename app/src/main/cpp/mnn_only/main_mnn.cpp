@@ -27,6 +27,7 @@
 #include "RequestParser.hpp"
 #include "SafeTensor2MNN.hpp"
 #include "SDUtils.hpp"
+#include "UpscaleMnn.hpp"
 #include "TextEncoder.hpp"
 #include "httplib.h"
 #include "json.hpp"
@@ -42,6 +43,7 @@ struct Options {
   bool use_v_pred = false;
   bool convert_mode = false;
   bool convert_clip_skip_2 = false;
+  bool upscaler_mode = false;
 };
 
 // A conservative error boundary: unsupported QNN flags fail closed, rather
@@ -86,13 +88,14 @@ Options parseArgs(int argc, char **argv) {
       throw std::invalid_argument(
           "LAN binding is disabled until authenticated remote hosting ships");
     } else if (flag == "--upscaler_mode") {
-      throw std::invalid_argument(
-          "Neural upscaler requires a separately verified MNN model");
+      opts.upscaler_mode = true;
+    } else if (flag == "--lib_dir") {
+      (void)value(); // Compatibility with upstream standalone SR launcher.
     } else {
       throw std::invalid_argument("Unsupported native runtime option: " + flag);
     }
   }
-  if (!opts.convert_mode && opts.type != "sd15cpu") {
+  if (!opts.convert_mode && !opts.upscaler_mode && opts.type != "sd15cpu") {
     throw std::invalid_argument(
         "This MNN-only build supports sd15cpu. QNN, SDXL and DiT require "
         "separately validated backends; requested: " + opts.type);
@@ -102,7 +105,8 @@ Options parseArgs(int argc, char **argv) {
   }
   if (opts.cpu_threads < 1 || opts.cpu_threads > 8)
     throw std::invalid_argument("--cpu_threads must be in 1..8");
-  if (opts.model_dir.empty()) throw std::invalid_argument("Missing --model_dir");
+  if (!opts.upscaler_mode && opts.model_dir.empty())
+    throw std::invalid_argument("Missing --model_dir");
   return opts;
 }
 
@@ -390,6 +394,18 @@ int main(int argc, char **argv) {
       convertSd15Safetensors(opts);
       return EXIT_SUCCESS;
     }
+    httplib::Server server;
+    server.set_payload_max_length(64ull * 1024 * 1024);
+    server.Get("/health", [](const httplib::Request &, httplib::Response &res) {
+      res.status = 200;
+    });
+    if (opts.upscaler_mode) {
+      localdream_sr::registerRoute(server, generation_lock);
+      QNN_INFO("Offline MNN SR backend listening on loopback:%d", opts.port);
+      if (!server.listen("127.0.0.1", opts.port))
+        throw std::runtime_error("Could not bind SR loopback port");
+      return EXIT_SUCCESS;
+    }
     TextEncoder encoder(false, false, 0, false);
     encoder.loadTokenizer((std::filesystem::path(opts.model_dir) /
                            "tokenizer.json").string());
@@ -411,21 +427,9 @@ int main(int argc, char **argv) {
       }
     }
 
-    httplib::Server server;
-    server.set_payload_max_length(64ull * 1024 * 1024);
-    server.Get("/health", [](const httplib::Request &,
-                             httplib::Response &res) {
-      res.status = 200;
-    });
     registerGenerate(server, *pipeline);
     registerTokenize(server, encoder);
-    server.Post("/upscale", [](const httplib::Request &,
-                               httplib::Response &res) {
-      res.status = 501;
-      res.set_content(
-          R"({"error":{"type":"not_implemented","message":"MNN upscaler is pending native validation"}})",
-          "application/json");
-    });
+    localdream_sr::registerRoute(server, generation_lock);
     QNN_INFO("MNN-only server on 127.0.0.1:%d (SD1.5 CPU/OpenCL)",
              opts.port);
     if (!server.listen("127.0.0.1", opts.port)) {
