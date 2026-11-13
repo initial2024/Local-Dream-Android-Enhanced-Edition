@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -65,8 +66,9 @@ fun UpscalerPickerFlow(
     upscalerRepository: UpscalerRepository,
     upscalerPreferences: SharedPreferences,
     onDismiss: () -> Unit,
-    onUpscalerConfirmed: (UpscalerModel, Int) -> Unit,
+    onUpscalerConfirmed: (UpscalerModel, Int, Boolean) -> Unit,
     upscalersOverride: List<UpscalerModel>? = null,
+    allowReplaceOriginal: Boolean = false,
 ) {
     val context = LocalContext.current
     val msgDownloadDone = stringResource(R.string.download_done)
@@ -85,6 +87,10 @@ fun UpscalerPickerFlow(
             upscalerPreferences.getInt("${modelId}_upscale_scale", UPSCALER_NATIVE_SCALE),
         )
     }
+    var replaceOriginal by remember {
+        mutableStateOf(upscalerPreferences.getBoolean("sr_replace_original_default", false))
+    }
+    var setAsDefault by remember { mutableStateOf(false) }
     var downloadingUpscalerId by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
 
@@ -154,6 +160,11 @@ fun UpscalerPickerFlow(
         selectedScale = tempSelectedScale,
         downloadingUpscalerId = downloadingUpscalerId,
         downloadProgress = downloadProgress,
+        allowReplaceOriginal = allowReplaceOriginal,
+        replaceOriginal = replaceOriginal,
+        saveAsDefault = setAsDefault,
+        onReplaceOriginalChange = { replaceOriginal = it },
+        onSaveAsDefaultChange = { setAsDefault = it },
         onDismiss = onDismiss,
         onSelectUpscaler = { upscalerId ->
             tempSelectedUpscalerId = upscalerId
@@ -168,8 +179,15 @@ fun UpscalerPickerFlow(
                 upscalerPreferences.edit {
                     putString("${modelId}_selected_upscaler", selectedUpscaler.id)
                     putInt("${modelId}_upscale_scale", tempSelectedScale)
+                    if (setAsDefault && allowReplaceOriginal) {
+                        putBoolean("sr_replace_original_default", replaceOriginal)
+                    }
                 }
-                onUpscalerConfirmed(selectedUpscaler, tempSelectedScale)
+                onUpscalerConfirmed(
+                    selectedUpscaler,
+                    tempSelectedScale,
+                    allowReplaceOriginal && replaceOriginal,
+                )
             } else if (selectedUpscaler != null) {
                 Toast.makeText(
                     context,
@@ -198,6 +216,11 @@ fun UpscalerSelectDialog(
     onSelectScale: (Int) -> Unit,
     onConfirm: () -> Unit,
     onDownload: (UpscalerModel) -> Unit,
+    allowReplaceOriginal: Boolean = false,
+    replaceOriginal: Boolean = false,
+    saveAsDefault: Boolean = false,
+    onReplaceOriginalChange: (Boolean) -> Unit = {},
+    onSaveAsDefaultChange: (Boolean) -> Unit = {},
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -221,6 +244,31 @@ fun UpscalerSelectDialog(
                         selectedScale = selectedScale,
                         onSelectScale = onSelectScale,
                     )
+                }
+                if (allowReplaceOriginal) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = replaceOriginal,
+                                    onCheckedChange = onReplaceOriginalChange,
+                                )
+                                Text(stringResource(R.string.enhanced_sr_replace_original))
+                            }
+                            Text(
+                                stringResource(R.string.enhanced_sr_replace_warning),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = saveAsDefault,
+                                    onCheckedChange = onSaveAsDefaultChange,
+                                )
+                                Text(stringResource(R.string.enhanced_sr_save_default))
+                            }
+                        }
+                    }
                 }
             }
         },
