@@ -3,18 +3,20 @@ package io.github.xororz.localdream.service
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /**
@@ -62,6 +64,34 @@ object MnnBackendHandoff {
         }
     }
 
+    // A child process may be Running in the service before its HTTP server
+    // binds loopback. Confirm the actual endpoint before sending an image.
+    private suspend fun awaitHealth(modelId: String) {
+        try {
+            withTimeout(60000L) {
+                while (true) {
+                    if (BackendService.servingModelId.value != modelId) {
+                        throw IllegalStateException("MNN backend owner changed during health check")
+                    }
+                    val ready = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val conn = URL("http://127.0.0.1:8081/health")
+                                .openConnection() as HttpURLConnection
+                            conn.connectTimeout = 800
+                            conn.readTimeout = 800
+                            conn.requestMethod = "GET"
+                            try { conn.responseCode == 200 } finally { conn.disconnect() }
+                        }.getOrDefault(false)
+                    }
+                    if (ready) return@withTimeout
+                    delay(300L)
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw IllegalStateException("MNN loopback health check timed out for " + modelId, e)
+        }
+    }
+
     private fun requestStop(context: Context) {
         context.startForegroundService(
             Intent(context, BackendService::class.java).apply {
@@ -81,6 +111,7 @@ object MnnBackendHandoff {
         try {
             requestStart(context, SR_MODEL_ID, BackendService.BACKEND_TYPE_UPSCALER, 512, 512)
             awaitServing(SR_MODEL_ID)
+            awaitHealth(SR_MODEL_ID)
             audit.sample("sr_engine_started", persist = true)
             return coroutineScope {
                 val sampler = launch(Dispatchers.IO) {
@@ -108,6 +139,7 @@ object MnnBackendHandoff {
                     requestStart(context, modelId, backendType, width, height)
                     try {
                         awaitServing(modelId)
+                        awaitHealth(modelId)
                         audit.sample("sd_restored", persist = true)
                     } catch (e: Exception) {
                         Log.e(TAG, "MNN generation restore failed", e)
@@ -126,6 +158,7 @@ object MnnBackendHandoff {
         try {
             requestStart(context, SR_MODEL_ID, BackendService.BACKEND_TYPE_UPSCALER, 512, 512)
             awaitServing(SR_MODEL_ID)
+            awaitHealth(SR_MODEL_ID)
             audit.sample("standalone_sr_started", persist = true)
             return coroutineScope {
                 val sampler = launch(Dispatchers.IO) {
