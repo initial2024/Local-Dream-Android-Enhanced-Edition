@@ -756,7 +756,15 @@ class BackendService : Service() {
 
             val proc = processBuilder.start()
             process = proc
-            StateHolder._nativePid.value = proc.pid()
+            // Android's java.lang.Process stub does not expose pid() on all
+            // supported API surfaces. Optional reflection is diagnostic only.
+            // A missing PID is recorded as null, never a fictitious zero.
+            StateHolder._nativePid.value = runCatching {
+                val method = proc.javaClass.methods.firstOrNull {
+                    it.name == "pid" && it.parameterTypes.isEmpty()
+                }
+                (method?.invoke(proc) as? Number)?.toLong()
+            }.getOrNull()
 
             startMonitorThread(proc)
 
