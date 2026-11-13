@@ -560,4 +560,12 @@
     <string name="enhanced_mnn_gpu_tuning_normal">标准（实验）</string>
     <string name="enhanced_mnn_gpu_tuning_hint">快速保留原本较短的初始化路径。标准会尝试更多 OpenCL 工作组组合，首次初始化可能更慢，但后续去噪可能更快。独立缓存；请用完全相同参数对比至少三次热机运行，不保证加速。</string>
     <string name="enhanced_mnn_gpu_tuning_retired">OpenCL 内核调优已固定为“快速”。真机测试发现“标准”模式严重变慢，现已停用，并自动清除旧设置。</string>
+    <string name="enhanced_export_title">导出图片 · 保持原始比例</string>
+    <string name="enhanced_export_original_size">原图：%1$d × %2$d 像素</string>
+    <string name="enhanced_export_scale">%1$d%% · %2$d × %3$d 像素</string>
+    <string name="enhanced_export_too_large">%1$d%% · 超出内存保护上限</string>
+    <string name="enhanced_export_png">PNG · 无损保存，文件可能更大</string>
+    <string name="enhanced_export_jpeg">JPEG · 质量 98，文件较小</string>
+    <string name="enhanced_export_notice">放大采用插值，不是 AI 超分；模型原生生成像素不变。额外位图最多约占 16 MiB。</string>
+    <string name="enhanced_export_confirm">保存图片</string>
 </resources>

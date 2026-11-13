@@ -33,6 +33,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
+enum class ImageSaveFormat { AUTO, PNG, JPEG_HIGH }
+
 private val saveSequence = AtomicLong(0L)
 
 private val reportClient: OkHttpClient by lazy {
@@ -301,7 +303,14 @@ suspend fun reportImage(
     }
 }
 
-suspend fun saveImage(context: Context, bitmap: Bitmap, onSuccess: () -> Unit, onError: (String) -> Unit) {
+/** JPEG_HIGH uses quality 98; PNG is lossless. No option increases native detail. */
+suspend fun saveImage(
+    context: Context,
+    bitmap: Bitmap,
+    onSuccess: () -> Unit,
+    onError: (String) -> Unit,
+    formatOverride: ImageSaveFormat = ImageSaveFormat.AUTO,
+) {
     withContext(Dispatchers.IO) {
         try {
             val startTime = System.currentTimeMillis()
@@ -313,11 +322,15 @@ suspend fun saveImage(context: Context, bitmap: Bitmap, onSuccess: () -> Unit, o
             // Transparent output (notably Qwen Image 2.1) must stay PNG. Opaque
             // large images retain the existing JPEG space optimization.
             val isLargeImage = bitmap.width > 1024 || bitmap.height > 1024
-            val usePng = bitmap.hasAlpha() || !isLargeImage
+            val usePng = bitmap.hasAlpha() || when (formatOverride) {
+                ImageSaveFormat.AUTO -> !isLargeImage
+                ImageSaveFormat.PNG -> true
+                ImageSaveFormat.JPEG_HIGH -> false
+            }
             val format = if (usePng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
             val extension = if (usePng) "png" else "jpg"
             val mimeType = if (usePng) "image/png" else "image/jpeg"
-            val quality = if (usePng) 100 else 95
+            val quality = if (usePng) 100 else if (formatOverride == ImageSaveFormat.JPEG_HIGH) 98 else 95
 
             Log.d("SaveImage", "Save format: ${if (usePng) "PNG" else "JPEG"}")
 

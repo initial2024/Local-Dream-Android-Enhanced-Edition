@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -61,6 +62,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -96,6 +98,7 @@ import io.github.xororz.localdream.data.HistoryFilter
 import io.github.xororz.localdream.data.HistoryItem
 import io.github.xororz.localdream.ui.theme.Motion
 import io.github.xororz.localdream.utils.HighDefinitionOutput
+import io.github.xororz.localdream.utils.ImageSaveFormat
 
 /** Result tab of the run screen: latest image, quick actions and recent thumbnails. */
 @Composable
@@ -122,12 +125,15 @@ internal fun ModelRunResultPage(
     onUpscaleClick: () -> Unit,
     onUltrafixClick: () -> Unit,
     onSaveClick: (Bitmap) -> Unit,
-    onSaveHdClick: (Bitmap) -> Unit,
+    onSaveHdClick: (Bitmap, Int, ImageSaveFormat) -> Unit,
     onPreviewClick: () -> Unit,
     onShowParameters: () -> Unit,
     onHistoryThumbClick: (HistoryItem) -> Unit,
     onGoToGenerate: () -> Unit,
 ) {
+    var showHdExportDialog by remember { mutableStateOf(false) }
+    var exportPercent by remember { mutableStateOf(100) }
+    var exportFormat by remember { mutableStateOf(ImageSaveFormat.PNG) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -300,7 +306,6 @@ internal fun ModelRunResultPage(
                                             LocalContext.current,
                                         )
                                             .data(it)
-                                            .size(coil.size.Size.ORIGINAL)
                                             .crossfade(true)
                                             .build(),
                                         contentDescription = "generated image",
@@ -313,7 +318,7 @@ internal fun ModelRunResultPage(
                         // Available for MNN CPU/GPU outputs on MediaTek as well as DiT.
                         // Scaling a smaller image does not imply extra diffusion detail.
                         currentBitmap?.let { bitmap ->
-                            TextButton(onClick = { onSaveHdClick(bitmap) }) {
+                            TextButton(onClick = { showHdExportDialog = true }) {
                                 Text(stringResource(R.string.enhanced_hd_export))
                             }
                         }
@@ -432,6 +437,86 @@ internal fun ModelRunResultPage(
                     }
                 }
             }
+        }
+    }
+    if (showHdExportDialog) {
+        currentBitmap?.let { bitmap ->
+            val selectedDimensions = runCatching {
+                HighDefinitionOutput.aspectExportDimensions(
+                    bitmap.width, bitmap.height, exportPercent,
+                )
+            }.getOrNull()
+            AlertDialog(
+                onDismissRequest = { showHdExportDialog = false },
+                title = { Text(stringResource(R.string.enhanced_export_title)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(
+                            R.string.enhanced_export_original_size, bitmap.width, bitmap.height,
+                        ))
+                        listOf(100, 150, 200).forEach { percent ->
+                            val dimensions = runCatching {
+                                HighDefinitionOutput.aspectExportDimensions(
+                                    bitmap.width, bitmap.height, percent,
+                                )
+                            }.getOrNull()
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = exportPercent == percent,
+                                    onClick = { exportPercent = percent },
+                                    enabled = dimensions != null,
+                                )
+                                Text(
+                                    if (dimensions != null) {
+                                        stringResource(
+                                            R.string.enhanced_export_scale,
+                                            percent,
+                                            dimensions.first,
+                                            dimensions.second,
+                                        )
+                                    } else {
+                                        stringResource(R.string.enhanced_export_too_large, percent)
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = exportFormat == ImageSaveFormat.PNG,
+                                onClick = { exportFormat = ImageSaveFormat.PNG },
+                            )
+                            Text(stringResource(R.string.enhanced_export_png))
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = exportFormat == ImageSaveFormat.JPEG_HIGH,
+                                onClick = { exportFormat = ImageSaveFormat.JPEG_HIGH },
+                            )
+                            Text(stringResource(R.string.enhanced_export_jpeg))
+                        }
+                        Text(
+                            stringResource(R.string.enhanced_export_notice),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = selectedDimensions != null,
+                        onClick = {
+                            showHdExportDialog = false
+                            onSaveHdClick(bitmap, exportPercent, exportFormat)
+                        },
+                    ) { Text(stringResource(R.string.enhanced_export_confirm)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showHdExportDialog = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                },
+            )
         }
     }
 }

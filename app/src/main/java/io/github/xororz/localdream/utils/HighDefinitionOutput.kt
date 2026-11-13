@@ -65,4 +65,37 @@ object HighDefinitionOutput {
         ))
         return result
     }
+    // ~16 MiB maximum extra pixel storage during optional, offline export.
+    const val MAX_ASPECT_EXPORT_PIXELS = 4_194_304L
+
+    fun aspectExportDimensions(sourceWidth: Int, sourceHeight: Int, percent: Int): Pair<Int, Int> {
+        require(sourceWidth in 1..16384 && sourceHeight in 1..16384) {
+            "Invalid source dimensions"
+        }
+        require(percent == 100 || percent == 150 || percent == 200) {
+            "Unsupported export scale"
+        }
+        val width = ((sourceWidth.toLong() * percent + 50L) / 100L).toInt()
+        val height = ((sourceHeight.toLong() * percent + 50L) / 100L).toInt()
+        require(width.toLong() * height <= MAX_ASPECT_EXPORT_PIXELS) {
+            "Export exceeds low-memory pixel budget"
+        }
+        return width to height
+    }
+
+    /** Preserve composition and aspect ratio; scaling cannot invent diffusion detail. */
+    fun exportPreservingAspect(bitmap: Bitmap, percent: Int): Bitmap {
+        require(!bitmap.isRecycled) { "Source bitmap is recycled" }
+        val (width, height) = aspectExportDimensions(bitmap.width, bitmap.height, percent)
+        if (width == bitmap.width && height == bitmap.height) return bitmap
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        output.setHasAlpha(bitmap.hasAlpha())
+        Canvas(output).drawBitmap(
+            bitmap,
+            null,
+            Rect(0, 0, width, height),
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
+        )
+        return output
+    }
 }

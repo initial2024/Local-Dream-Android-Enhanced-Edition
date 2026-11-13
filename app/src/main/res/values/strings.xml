@@ -571,4 +571,12 @@
     <string name="enhanced_mnn_gpu_tuning_normal">Normal (experimental)</string>
     <string name="enhanced_mnn_gpu_tuning_hint">Fast keeps the previous quick startup and cached kernels. Normal explores more OpenCL workgroup configurations: first run may initialize slower, but later denoising could be faster. Uses its own cache; evaluate identical settings in at least three warm runs.</string>
     <string name="enhanced_mnn_gpu_tuning_retired">OpenCL kernel tuning is locked to Fast after a real-device regression. The previous Normal experiment is disabled.</string>
+    <string name="enhanced_export_title">Export image · original aspect ratio</string>
+    <string name="enhanced_export_original_size">Source: %1$d × %2$d px</string>
+    <string name="enhanced_export_scale">%1$d%% · %2$d × %3$d px</string>
+    <string name="enhanced_export_too_large">%1$d%% · unavailable (RAM cap)</string>
+    <string name="enhanced_export_png">PNG · lossless pixels, larger file</string>
+    <string name="enhanced_export_jpeg">JPEG · quality 98, smaller file</string>
+    <string name="enhanced_export_notice">Enlargement uses interpolation, not AI super-resolution. Native generation pixels stay unchanged. Maximum extra bitmap ~16 MiB.</string>
+    <string name="enhanced_export_confirm">Save image</string>
 </resources>

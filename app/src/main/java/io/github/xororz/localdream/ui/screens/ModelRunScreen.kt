@@ -173,6 +173,7 @@ import io.github.xororz.localdream.ui.components.SmoothLinearWavyProgressIndicat
 import io.github.xororz.localdream.ui.components.ZoomableImageOverlay
 import io.github.xororz.localdream.ui.theme.Motion
 import io.github.xororz.localdream.utils.HighDefinitionOutput
+import io.github.xororz.localdream.utils.ImageSaveFormat
 import io.github.xororz.localdream.utils.ImportedParams
 import io.github.xororz.localdream.utils.LogCapture
 import io.github.xororz.localdream.utils.ParamShare
@@ -1271,7 +1272,14 @@ fun ModelRunScreen(
         }
     }
 
-    fun handleSaveImage(context: Context, bitmap: Bitmap, onSuccess: () -> Unit, onError: (String) -> Unit) {
+    fun handleSaveImage(
+        context: Context,
+        bitmap: Bitmap,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit,
+        exportPercent: Int = 100,
+        exportFormat: ImageSaveFormat = ImageSaveFormat.AUTO,
+    ) {
         if (!checkStoragePermission(context)) {
             onError("need storage permission to save image")
             return
@@ -1322,12 +1330,26 @@ fun ModelRunScreen(
                             top = snapshotCropRect!!.top,
                         )
 
-                        saveImage(
-                            context = context,
-                            bitmap = mutableOriginal,
-                            onSuccess = onSuccess,
-                            onError = onError,
-                        )
+                        try {
+                            val exportBitmap = HighDefinitionOutput.exportPreservingAspect(
+                                mutableOriginal, exportPercent,
+                            )
+                            try {
+                                saveImage(
+                                    context = context,
+                                    bitmap = exportBitmap,
+                                    onSuccess = onSuccess,
+                                    onError = onError,
+                                    formatOverride = exportFormat,
+                                )
+                            } finally {
+                                if (exportBitmap !== mutableOriginal) exportBitmap.recycle()
+                            }
+                        } finally {
+                            resizedPatch.recycle()
+                            mutableOriginal.recycle()
+                            originalBitmap.recycle()
+                        }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             onError("Failed to create composite image: ${e.localizedMessage}")
@@ -1335,12 +1357,24 @@ fun ModelRunScreen(
                     }
                 }
             } else {
-                saveImage(
-                    context = context,
-                    bitmap = bitmap,
-                    onSuccess = onSuccess,
-                    onError = onError,
-                )
+                try {
+                    val exportBitmap = withContext(Dispatchers.IO) {
+                        HighDefinitionOutput.exportPreservingAspect(bitmap, exportPercent)
+                    }
+                    try {
+                        saveImage(
+                            context = context,
+                            bitmap = exportBitmap,
+                            onSuccess = onSuccess,
+                            onError = onError,
+                            formatOverride = exportFormat,
+                        )
+                    } finally {
+                        if (exportBitmap !== bitmap) exportBitmap.recycle()
+                    }
+                } catch (e: Exception) {
+                    onError("Export failed: ${e.localizedMessage}")
+                }
             }
         }
     }
@@ -3360,12 +3394,12 @@ fun ModelRunScreen(
                             onReportClick = { showReportDialog = true },
                             onUpscaleClick = { showUpscalerDialog = true },
                             onUltrafixClick = { showUltrafixConfirmDialog = true },
-                            onSaveHdClick = { bitmap ->
-                                // Explicit crop: ordinary Save/history keep native 1440x1088.
-                                val cropped = HighDefinitionOutput.export(bitmap)
+                            onSaveHdClick = { bitmap, percent, format ->
                                 handleSaveImage(
                                     context = context,
-                                    bitmap = cropped,
+                                    bitmap = bitmap,
+                                    exportPercent = percent,
+                                    exportFormat = format,
                                     onSuccess = {
                                         Toast.makeText(context, msgImageSaved, Toast.LENGTH_SHORT).show()
                                     },
