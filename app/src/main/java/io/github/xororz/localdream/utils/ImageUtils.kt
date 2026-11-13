@@ -14,6 +14,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import io.github.xororz.localdream.R
+import io.github.xororz.localdream.BuildConfig
+import io.github.xororz.localdream.data.MnnUpscalePolicy
 import io.github.xororz.localdream.data.Model
 import io.github.xororz.localdream.service.BackgroundGenerationService
 import io.github.xororz.localdream.ui.screens.GenerationParameters
@@ -51,7 +53,7 @@ private val upscaleClient: OkHttpClient by lazy {
     Http.client.newBuilder()
         .connectTimeout(300, TimeUnit.SECONDS)
         .writeTimeout(300, TimeUnit.SECONDS)
-        .readTimeout(300, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS)
         .build()
 }
 
@@ -145,6 +147,10 @@ suspend fun performUpscale(
     val prepareStartTime = System.currentTimeMillis()
     val width = bitmap.width
     val height = bitmap.height
+    if (BuildConfig.MNN_ONLY_NATIVE &&
+        backendHost == BackgroundGenerationService.LOCAL_BACKEND_HOST) {
+        MnnUpscalePolicy.resultSize(width, height)
+    }
     val pixels = IntArray(width * height)
     bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
@@ -167,7 +173,7 @@ suspend fun performUpscale(
         "Prepare RGB data took: ${System.currentTimeMillis() - prepareStartTime}ms",
     )
 
-    // Binary protocol: raw RGB in, JPEG out, metadata in headers.
+    // Binary protocol: raw RGB in; MNN-only 4x returns lossless PNG, legacy may return JPEG.
     val request = Request.Builder()
         .url("http://$backendHost/upscale")
         .header("X-Image-Width", width.toString())
