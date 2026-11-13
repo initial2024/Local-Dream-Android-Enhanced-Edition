@@ -79,6 +79,8 @@ class BackendService : Service() {
         private const val IDLE_GRACE_MS = 1500L
 
         const val ACTION_STOP = "io.github.xororz.localdream.STOP_GENERATION"
+        const val ACTION_STOP_NOW = "io.github.xororz.localdream.STOP_BACKEND_NOW"
+        const val EXTRA_EXPECTED_MODEL_ID = "expected_model_id"
         const val ACTION_RESTART = "io.github.xororz.localdream.RESTART_BACKEND"
 
         // Brings the service up as a foreground service without touching any
@@ -201,7 +203,13 @@ class BackendService : Service() {
         // actual process to it via reconcile(). This keeps every start/stop
         // ordered and race-free regardless of how fast the screen comes and goes.
         when (intent?.action) {
-            ACTION_STOP -> serviceScope.launch { requestStop(startId) }
+            ACTION_STOP, ACTION_STOP_NOW -> serviceScope.launch {
+                requestStop(
+                    startId = startId,
+                    expectedModelId = intent.getStringExtra(EXTRA_EXPECTED_MODEL_ID),
+                    immediate = intent.action == ACTION_STOP_NOW,
+                )
+            }
 
             // Foreground promotion only; no backend change.
             ACTION_STANDBY -> {}
@@ -287,9 +295,30 @@ class BackendService : Service() {
     // Declares that nothing should run, but only tears down after a grace
     // window. A re-entry within the window cancels this job and reconciles in
     // place; otherwise the process is stopped and the Service stops itself.
-    private fun requestStop(startId: Int) {
+    private fun requestStop(
+        startId: Int,
+        expectedModelId: String? = null,
+        immediate: Boolean = false,
+    ) {
+        // An old screen must not stop a newer SR or diffusion owner.
+        if (expectedModelId != null &&
+            desired?.modelId != expectedModelId &&
+            serving?.modelId != expectedModelId
+        ) {
+            Log.i(TAG, "Ignore stale backend stop for " + expectedModelId)
+            return
+        }
         desired = null
         idleStopJob?.cancel()
+        idleStopJob = null
+        if (immediate) {
+            stopBackend()
+            updateState(BackendState.Idle)
+            if (!RemoteHostService.isRunning.value && stopSelfResult(startId)) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            }
+            return
+        }
         idleStopJob = serviceScope.launch {
             delay(IDLE_GRACE_MS)
             // A re-entry during the delay normally cancels us. The startId guard
