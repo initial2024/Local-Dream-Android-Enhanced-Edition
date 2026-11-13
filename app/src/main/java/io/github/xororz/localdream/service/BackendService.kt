@@ -302,8 +302,7 @@ class BackendService : Service() {
     ) {
         // An old screen must not stop a newer SR or diffusion owner.
         if (expectedModelId != null &&
-            desired?.modelId != expectedModelId &&
-            serving?.modelId != expectedModelId
+            (desired?.modelId ?: serving?.modelId) != expectedModelId
         ) {
             Log.i(TAG, "Ignore stale backend stop for " + expectedModelId)
             return
@@ -312,7 +311,7 @@ class BackendService : Service() {
         idleStopJob?.cancel()
         idleStopJob = null
         if (immediate) {
-            stopBackend()
+            if (!stopBackend()) return
             updateState(BackendState.Idle)
             if (!RemoteHostService.isRunning.value && stopSelfResult(startId)) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -373,7 +372,10 @@ class BackendService : Service() {
             updateState(BackendState.Running)
             return
         }
-        stopBackend()
+        if (!stopBackend()) {
+            updateState(BackendState.Error("Previous native backend failed to exit", want.modelId))
+            return
+        }
         // Published under the move lock: a move either sees this backend as
         // busy and stays put, or is already running and turns the start away.
         if (ModelStorage.unlessMoving { updateState(BackendState.Starting) } == null) {
@@ -816,7 +818,7 @@ class BackendService : Service() {
         }
     }
 
-    private fun stopBackend() {
+    private fun stopBackend(): Boolean {
         Log.i(TAG, "to stop backend")
         // Mark the upcoming exit as intentional before destroy() so the monitor
         // thread (which wakes the instant the process dies) won't race ahead and
@@ -828,18 +830,25 @@ class BackendService : Service() {
 
                 if (!proc.waitFor(5, TimeUnit.SECONDS)) {
                     proc.destroyForcibly()
+                    if (!proc.waitFor(5, TimeUnit.SECONDS)) {
+                        throw IllegalStateException("Native child refused termination")
+                    }
                 }
 
                 Log.i(TAG, "process end, code: ${proc.exitValue()}")
                 updateState(BackendState.Idle)
             } catch (e: Exception) {
-                Log.e(TAG, "error", e)
-                updateState(BackendState.Error("error: ${e.message}"))
+                Log.e(TAG, "native process termination failed", e)
+                updateState(BackendState.Error("native teardown: ${e.message}"))
+                // Fail closed: never start a second native engine while the old
+                // one might still own the same port and MNN/OpenCL allocations.
+                return false
             } finally {
-                process = null
+                if (!proc.isAlive) process = null
             }
         }
         serving = null
         updateServing(null)
+        return true
     }
 }
