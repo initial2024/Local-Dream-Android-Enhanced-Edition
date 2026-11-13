@@ -460,9 +460,32 @@ class UpscalerRepository private constructor(private val context: Context) {
     }
 
     private fun initializeUpscalers(baseUrl: String): List<UpscalerModel> {
+        if (BuildConfig.MNN_ONLY_NATIVE) {
+            // MNN graphs are distinct from the older Qualcomm QNN binaries.
+            // Keeping separate model slots prevents incompatible file reuse.
+            return listOf(
+                UpscalerModel(
+                    id = "upscaler_mnn_anime",
+                    name = context.getString(R.string.upscaler_anime),
+                    description = context.getString(R.string.upscaler_anime_desc),
+                    baseUrl = baseUrl,
+                    fileUri = "tumuyan2/realsr-models/resolve/main/models-MNNSR/" +
+                        "RealESRGAN_x4plus_anime_6B-x4.mnn",
+                    isDownloaded = Model.isUpscalerDownloaded(context, "upscaler_mnn_anime"),
+                ),
+                UpscalerModel(
+                    id = "upscaler_mnn_photo",
+                    name = context.getString(R.string.upscaler_realistic),
+                    description = context.getString(R.string.upscaler_realistic_desc),
+                    baseUrl = baseUrl,
+                    fileUri = "tumuyan2/realsr-models/resolve/main/models-MNNSR/" +
+                        "ESRGAN-Nomos8kSC-x4.mnn",
+                    isDownloaded = Model.isUpscalerDownloaded(context, "upscaler_mnn_photo"),
+                ),
+            )
+        }
         val soc = getDeviceSoc()
         val suffix = Model.getChipsetSuffix(soc) ?: "min"
-
         return listOf(
             createAnimeUpscaler(baseUrl, suffix),
             createRealisticUpscaler(baseUrl, suffix),
