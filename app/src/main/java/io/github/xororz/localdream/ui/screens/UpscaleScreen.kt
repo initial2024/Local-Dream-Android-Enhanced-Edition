@@ -59,6 +59,7 @@ import io.github.xororz.localdream.ui.theme.Motion
 import io.github.xororz.localdream.utils.UPSCALER_NATIVE_SCALE
 import io.github.xororz.localdream.utils.performUpscale
 import io.github.xororz.localdream.utils.saveImage
+import io.github.xororz.localdream.utils.ImageSaveFormat
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -558,6 +559,11 @@ fun UpscaleScreen(navController: NavController, modifier: Modifier = Modifier) {
                                             saveImage(
                                                 context = context,
                                                 bitmap = bitmap,
+                                                // The neural PNG is already lossless. Do not
+                                                // introduce JPEG loss in the final export.
+                                                formatOverride = if (BuildConfig.MNN_ONLY_NATIVE &&
+                                                    !isRemote) ImageSaveFormat.PNG
+                                                    else ImageSaveFormat.AUTO,
                                                 onSuccess = {
                                                     Toast.makeText(
                                                         context,
@@ -792,7 +798,7 @@ fun UpscaleScreen(navController: NavController, modifier: Modifier = Modifier) {
                                 resultBitmap.let { bmp ->
                                     withContext(Dispatchers.IO) {
                                         try {
-                                            val usePng = bmp.hasAlpha()
+                                            val usePng = BuildConfig.MNN_ONLY_NATIVE || bmp.hasAlpha()
                                             val tempFile = File(
                                                 context.cacheDir,
                                                 "upscaled_temp_${System.currentTimeMillis()}." +
