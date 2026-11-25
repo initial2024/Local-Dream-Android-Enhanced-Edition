@@ -1067,7 +1067,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                             }
                             if (BuildConfig.MNN_ONLY_NATIVE) {
                                 DropdownMenuItem(
-                                    text = { Text("AI 消除 / 局部修复") },
+                                    text = { Text("AI 消除 / 换衣 / 局部修复") },
                                     leadingIcon = {
                                         Icon(Icons.Default.AutoFixHigh, contentDescription = null)
                                     },
