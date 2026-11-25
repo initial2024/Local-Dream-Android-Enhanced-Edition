@@ -525,6 +525,32 @@ fun ObjectRemovalScreen(navController: NavController) {
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 2,
                 )
+                if (editMode == LocalEditMode.OUTFIT) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            "black tailored suit",
+                            "white casual shirt",
+                            "denim jacket",
+                        ).forEach { preset ->
+                            OutlinedButton(
+                                onClick = {
+                                    prompt = preset
+                                    prefs.edit { putString("outfit_prompt", preset) }
+                                },
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    when (preset) {
+                                        "black tailored suit" -> "黑色西装"
+                                        "white casual shirt" -> "白衬衫"
+                                        else -> "牛仔外套"
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 Text(
                     (if (editMode == LocalEditMode.OUTFIT) "衣物重绘强度 " else "修复强度 ") +
                         (denoise * 100).roundToInt() + "%",
