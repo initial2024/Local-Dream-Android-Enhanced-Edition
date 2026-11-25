@@ -25,6 +25,7 @@ sealed class Screen(val route: String) {
 
     object Upscale : Screen("upscale")
     object ObjectRemoval : Screen("object_removal")
+    object SurfaceSpotRepair : Screen("surface_spot_repair")
 
     object History : Screen("history")
 
