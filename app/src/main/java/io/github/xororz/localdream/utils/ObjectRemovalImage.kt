@@ -3,6 +3,7 @@ package io.github.xororz.localdream.utils
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.ImageDecoder
 import android.graphics.Rect
 import android.net.Uri
@@ -85,6 +86,7 @@ fun objectRemovalMaskBounds(mask: Bitmap): ObjectRemovalPolicy.Box? {
     } else null
 }
 
+@Suppress("DEPRECATION")
 suspend fun decodeObjectRemovalRegion(
     context: Context,
     uri: Uri,
@@ -92,12 +94,59 @@ suspend fun decodeObjectRemovalRegion(
     targetWidth: Int,
     targetHeight: Int,
 ): Bitmap = withContext(Dispatchers.IO) {
-    val source = ImageDecoder.createSource(context.contentResolver, uri)
-    ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-        decoder.setCrop(Rect(sourceBox.left, sourceBox.top, sourceBox.right, sourceBox.bottom))
-        decoder.setTargetSize(targetWidth, targetHeight)
-        decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-        decoder.isMutableRequired = false
+    require(sourceBox.isValid)
+    require(targetWidth > 0 && targetHeight > 0)
+
+    val sourceRect = Rect(sourceBox.left, sourceBox.top, sourceBox.right, sourceBox.bottom)
+
+    // Important: never combine original-source crop coordinates with
+    // ImageDecoder.setTargetSize(). Android validates the crop against the
+    // already-scaled target and throws e.g. "Subset Rect(...) not contained
+    // by scaled image bounds". Decode the source ROI first, then scale it.
+    val regionBitmap = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val regionDecoder = BitmapRegionDecoder.newInstance(input, false)
+                ?: return@use null
+            try {
+                var sample = 1
+                while (
+                    sourceBox.width / (sample * 2) >= targetWidth &&
+                    sourceBox.height / (sample * 2) >= targetHeight
+                ) {
+                    sample *= 2
+                }
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                regionDecoder.decodeRegion(sourceRect, options)
+            } finally {
+                regionDecoder.recycle()
+            }
+        }
+    }.getOrNull() ?: run {
+        // Fallback for formats/providers BitmapRegionDecoder cannot handle.
+        // Still crop at source resolution; scaling happens after decoding.
+        val source = ImageDecoder.createSource(context.contentResolver, uri)
+        ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            require(
+                sourceBox.left >= 0 &&
+                    sourceBox.top >= 0 &&
+                    sourceBox.right <= info.size.width &&
+                    sourceBox.bottom <= info.size.height
+            ) { "Removal ROI is outside the imported image" }
+            decoder.setCrop(sourceRect)
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            decoder.isMutableRequired = false
+        }
+    }
+
+    if (regionBitmap.width == targetWidth && regionBitmap.height == targetHeight) {
+        regionBitmap
+    } else {
+        Bitmap.createScaledBitmap(regionBitmap, targetWidth, targetHeight, true).also {
+            if (it !== regionBitmap && !regionBitmap.isRecycled) regionBitmap.recycle()
+        }
     }
 }
 
