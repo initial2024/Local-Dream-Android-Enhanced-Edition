@@ -29,6 +29,7 @@ import io.github.xororz.localdream.ui.screens.HistoryScreen
 import io.github.xororz.localdream.ui.screens.MigrationScreen
 import io.github.xororz.localdream.ui.screens.ModelListScreen
 import io.github.xororz.localdream.ui.screens.ModelRunScreen
+import io.github.xororz.localdream.ui.screens.ObjectRemovalScreen
 import io.github.xororz.localdream.ui.screens.RemoteScreen
 import io.github.xororz.localdream.ui.screens.UpscaleScreen
 import io.github.xororz.localdream.ui.theme.LocalDreamTheme
@@ -211,6 +212,9 @@ private fun AppContent() {
         }
         composable(Screen.Upscale.route) {
             UpscaleScreen(navController)
+        }
+        composable(Screen.ObjectRemoval.route) {
+            ObjectRemovalScreen(navController)
         }
         composable(Screen.History.route) {
             HistoryScreen(navController)
