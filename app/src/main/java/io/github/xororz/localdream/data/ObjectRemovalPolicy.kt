@@ -10,6 +10,19 @@ object ObjectRemovalPolicy {
     const val MAX_PREVIEW_SIDE = 1536
     const val MAX_WORK_SIDE = 640
     const val MIN_WORK_SIDE = 128
+    // The actual arm64 MNN /generate HTTP contract requires a multiple of 64,
+    // not just the 8-pixel VAE latent alignment. Sending 8-aligned dimensions
+    // causes native HTTP 400 before any inference begins.
+    const val NATIVE_CANVAS_ALIGNMENT = 64
+    private const val NATIVE_MAX_SIDE = 1024
+    private const val NATIVE_MAX_PIXELS = 1_048_576L
+
+    fun isValidNativeCanvas(width: Int, height: Int): Boolean =
+        width in MIN_WORK_SIDE..NATIVE_MAX_SIDE &&
+            height in MIN_WORK_SIDE..NATIVE_MAX_SIDE &&
+            width % NATIVE_CANVAS_ALIGNMENT == 0 &&
+            height % NATIVE_CANVAS_ALIGNMENT == 0 &&
+            width.toLong() * height <= NATIVE_MAX_PIXELS
     const val MAX_SOURCE_PIXELS = 32_000_000L
     const val MASK_ALPHA_THRESHOLD = 12
 
@@ -89,9 +102,16 @@ object ObjectRemovalPolicy {
         val scale = min(1.0, MAX_WORK_SIDE.toDouble() / max(sourceBox.width, sourceBox.height))
         fun dimension(value: Int): Int {
             val raw = max(MIN_WORK_SIDE, (value * scale).roundToInt())
-            return ((raw + 7) / 8 * 8).coerceIn(MIN_WORK_SIDE, MAX_WORK_SIDE)
+            // Use the SAME alignment as the native HTTP validation. This
+            // policy is shared by manual-mask and click-selected ROI workflows.
+            return (
+                (raw + NATIVE_CANVAS_ALIGNMENT - 1) / NATIVE_CANVAS_ALIGNMENT *
+                    NATIVE_CANVAS_ALIGNMENT
+                ).coerceIn(MIN_WORK_SIDE, MAX_WORK_SIDE)
         }
-        return dimension(sourceBox.width) to dimension(sourceBox.height)
+        return (dimension(sourceBox.width) to dimension(sourceBox.height)).also { (w, h) ->
+            check(isValidNativeCanvas(w, h)) { "Invalid local MNN ROI canvas: ${w}x${h}" }
+        }
     }
 
     fun mapSourceBoxToPreview(
