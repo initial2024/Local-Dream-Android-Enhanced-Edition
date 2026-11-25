@@ -33,4 +33,39 @@ class ObjectRemovalPolicyTest {
             )
         }
     }
+    @Test fun classifiesCoarsePaintedRegion() {
+        assertEquals(
+            ObjectRemovalPolicy.ApproxBodyRegion.HEAD_SHOULDERS,
+            ObjectRemovalPolicy.classifyApproxBodyRegion(
+                ObjectRemovalPolicy.Box(350, 30, 650, 210),
+                1000,
+                1000,
+            ),
+        )
+        assertEquals(
+            ObjectRemovalPolicy.ApproxBodyRegion.UPPER_BODY,
+            ObjectRemovalPolicy.classifyApproxBodyRegion(
+                ObjectRemovalPolicy.Box(250, 260, 750, 520),
+                1000,
+                1000,
+            ),
+        )
+        assertEquals(
+            ObjectRemovalPolicy.ApproxBodyRegion.LOWER_BODY,
+            ObjectRemovalPolicy.classifyApproxBodyRegion(
+                ObjectRemovalPolicy.Box(300, 650, 700, 900),
+                1000,
+                1000,
+            ),
+        )
+        assertEquals(
+            ObjectRemovalPolicy.ApproxBodyRegion.FULL_BODY,
+            ObjectRemovalPolicy.classifyApproxBodyRegion(
+                ObjectRemovalPolicy.Box(250, 120, 750, 820),
+                1000,
+                1000,
+            ),
+        )
+    }
+
 }
