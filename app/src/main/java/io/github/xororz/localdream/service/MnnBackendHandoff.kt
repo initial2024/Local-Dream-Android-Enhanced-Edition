@@ -101,6 +101,23 @@ object MnnBackendHandoff {
         )
     }
 
+    private suspend fun awaitStopped(modelId: String) {
+        try {
+            withTimeout(30000L) {
+                combine(
+                    BackendService.backendState,
+                    BackendService.servingModelId,
+                ) { state, serving -> state to serving }
+                    .first { (state, serving) ->
+                        serving != modelId &&
+                            state !is BackendService.BackendState.Starting
+                    }
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw IllegalStateException("MNN backend did not release " + modelId, e)
+        }
+    }
+
     /**
      * Runs a one-shot local SD operation without leaving the generation model
      * resident afterwards. Used by standalone object removal so large source
@@ -122,6 +139,7 @@ object MnnBackendHandoff {
         } finally {
             withContext(NonCancellable) {
                 requestStop(context, modelId)
+                awaitStopped(modelId)
             }
         }
     }
@@ -159,7 +177,8 @@ object MnnBackendHandoff {
             withContext(NonCancellable) {
                 if (!ownerStillActive) {
                     requestStop(context)
-                    audit.sample("sr_cancelled_stop_queued", persist = true)
+                    awaitStopped(SR_MODEL_ID)
+                    audit.sample("sr_cancelled_stopped", persist = true)
                 } else {
                     requestStart(context, modelId, backendType, width, height)
                     try {
@@ -202,7 +221,8 @@ object MnnBackendHandoff {
         } finally {
             withContext(NonCancellable) {
                 requestStop(context)
-                audit.sample("standalone_sr_stop_queued", persist = true)
+                awaitStopped(SR_MODEL_ID)
+                audit.sample("standalone_sr_stopped", persist = true)
             }
         }
     }
