@@ -252,6 +252,10 @@ fun ObjectRemovalScreen(navController: NavController) {
         val source = imported ?: return
         val mask = maskBitmap ?: return
         val model = selectedModel ?: return
+        if (editMode == LocalEditMode.OUTFIT && prompt.isBlank()) {
+            errorMessage = "请先描述要替换成什么衣服"
+            return
+        }
         if (busy) return
         scope.launch {
             var workSource: Bitmap? = null
@@ -360,7 +364,7 @@ fun ObjectRemovalScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AI 消除") },
+                title = { Text("AI 消除 / 换衣") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStackIfResumed() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
