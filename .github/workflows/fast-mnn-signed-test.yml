@@ -4,6 +4,12 @@ name: Fast signed MNN device-test from pinned native artifact
 # Never silently reuse an older native binary after native source changes.
 on:
   workflow_dispatch:
+  # One-shot self-trigger for this re-pin commit. Reverted to manual-only
+  # immediately after GitHub schedules the run.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fast-mnn-signed-test.yml'
 
 permissions:
   contents: read
@@ -33,7 +39,7 @@ jobs:
           set -euo pipefail
           # The code must be exactly the same native implementation as the
           # already-successful source build. Fail closed on future source edits.
-          VERIFIED_SOURCE="f50df90d96889273a2faae1b667baa889c1ebe52"
+          VERIFIED_SOURCE="ba789c0270411762a76b0a87e0c2b59063b08507"
           git cat-file -e "$VERIFIED_SOURCE^{commit}"
           git diff --exit-code "$VERIFIED_SOURCE" HEAD -- \
             app/src/main/cpp/mnn_only \
@@ -43,14 +49,22 @@ jobs:
           echo "Native source matches previously verified commit $VERIFIED_SOURCE"
 
           mkdir -p "$RUNNER_TEMP/verified-core"
-          gh run download 42499475841 \
+          # Reuse the native core from the exact signed alpha.16 artifact that
+          # already passed the full source build, fixed-certificate and ABI gates.
+          gh run download 45554974753 \
             --repo "$GITHUB_REPOSITORY" \
-            --name LocalDream-MNN-only-arm64-EXPERIMENTAL-not-an-APK \
+            --name LocalDreamEnhanced-basicRelease-signed-DEVICE-UNVERIFIED \
             --dir "$RUNNER_TEMP/verified-core"
-          NATIVE_FROM_CI="$(find "$RUNNER_TEMP/verified-core" -type f -name libstable_diffusion_core.so -print -quit)"
+          VERIFIED_APK="$(find "$RUNNER_TEMP/verified-core" -type f -name '*.apk' -print -quit)"
+          test -s "$VERIFIED_APK"
+          printf '%s  %s\n' \
+            '90a88b409d6ed8a073c5c2d03a50620cfb5b8e942c20747215a3f49d62e1af99' \
+            "$VERIFIED_APK" | sha256sum --check --status
+          NATIVE_FROM_CI="$RUNNER_TEMP/verified-core/libstable_diffusion_core.so"
+          unzip -p "$VERIFIED_APK" lib/arm64-v8a/libstable_diffusion_core.so > "$NATIVE_FROM_CI"
           test -s "$NATIVE_FROM_CI"
           printf '%s  %s\n' \
-            '6f5b1471daaf349fdea926000bf84f0f6c71662278b1afbd964ec9d3fbcfc30d' \
+            'c75381336d61d9c577f711fdf794e3ed80b9c7e43f2ec49a8c741ebb5fdfbb2a' \
             "$NATIVE_FROM_CI" | sha256sum --check --status
 
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort -V | tail -n1)"
