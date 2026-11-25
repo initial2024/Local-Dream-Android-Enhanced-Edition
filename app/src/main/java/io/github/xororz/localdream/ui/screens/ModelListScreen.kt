@@ -1078,6 +1078,14 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                                 )
                             }
                             DropdownMenuItem(
+                                text = { Text("点击污点修补") },
+                                leadingIcon = { Icon(Icons.Default.AutoFixHigh, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    navController.navigate(Screen.SurfaceSpotRepair.route)
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text(stringResource(R.string.remote_link)) },
                                 leadingIcon = {
                                     Icon(Icons.Default.Devices, contentDescription = null)
