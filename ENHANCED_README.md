@@ -24,6 +24,19 @@ Primary test baseline: **MediaTek Dimensity 9400+, 12 GiB physical RAM, Android 
 
 **Not yet delivered:** complete APK, working end-to-end HD benchmark on this phone, one-tap global-history auto-regeneration, output size targeting (e.g. 1 MB), real local video diffusion. These require implementation/testing beyond the first source overlay.
 
+## APK compression and packaging
+
+The enhanced release uses several independent size-reduction layers while preserving the selected runtime behavior:
+
+1. **R8 minification/optimization** for the Android release build.
+2. **Resource shrinking** to remove unreachable packaged Android resources.
+3. **arm64-v8a-only packaging** for this device-test line; other ABIs are deliberately excluded.
+4. **Safe native symbol stripping** using `llvm-strip --strip-unneeded` on the packaged MNN native core. CI retains the original unstripped native artifact for diagnosis.
+5. **On-demand model downloads**: SD/MNN model weights are not bundled into the base APK.
+6. The downloadable companion archive is produced with **`zip -9`**.
+
+These steps reduce installer/distribution size; they do not deliberately reduce PNG/JPEG export quality, change Stable Diffusion model precision at download time, or silently replace a user's model with a lower-quality copy.
+
 ## Existing v2.8.1 installation and model data
 
 Original package `io.github.xororz.localdream` stays installed. Different signature cannot update that package; a unique application ID avoids destructive replacement. Private app directories remain private. External `Download/LocalDream` storage can be reused only where Android permissions and model formats allow; if not, user-directed model import or re-download is required. Never clear old app data automatically.
