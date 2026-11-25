@@ -92,13 +92,38 @@ object MnnBackendHandoff {
         }
     }
 
-    private fun requestStop(context: Context) {
+    private fun requestStop(context: Context, expectedModelId: String = SR_MODEL_ID) {
         context.startForegroundService(
             Intent(context, BackendService::class.java).apply {
                 action = BackendService.ACTION_STOP_NOW
-                putExtra(BackendService.EXTRA_EXPECTED_MODEL_ID, SR_MODEL_ID)
+                putExtra(BackendService.EXTRA_EXPECTED_MODEL_ID, expectedModelId)
             },
         )
+    }
+
+    /**
+     * Runs a one-shot local SD operation without leaving the generation model
+     * resident afterwards. Used by standalone object removal so large source
+     * pixels are decoded only after the native model has exited.
+     */
+    suspend fun <T> withStandaloneGeneration(
+        context: Context,
+        modelId: String,
+        backendType: String,
+        width: Int,
+        height: Int,
+        operation: suspend () -> T,
+    ): T {
+        try {
+            requestStart(context, modelId, backendType, width, height)
+            awaitServing(modelId)
+            awaitHealth(modelId)
+            return operation()
+        } finally {
+            withContext(NonCancellable) {
+                requestStop(context, modelId)
+            }
+        }
     }
 
     /** Executes SR, then restores original generation even when SR fails. */
