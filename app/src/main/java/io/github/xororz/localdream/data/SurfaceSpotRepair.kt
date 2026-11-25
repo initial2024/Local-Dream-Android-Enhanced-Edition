@@ -1,6 +1,7 @@
 package io.github.xororz.localdream.data
 
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Bounded classical spot repair for small marks on smooth surfaces.
@@ -82,7 +83,12 @@ object SurfaceSpotRepair {
             var b = 0
             var n = 0
             for (j in intArrayOf(i - 1, i + 1, i - width, i + width)) {
-                if (!mask[j] && (source[j] ushr 24) == 255) {
+                if (!mask[j]) {
+                    // An alpha edge is not an observed opaque background.
+                    // Reject rather than pull hidden RGB values into the repair.
+                    require((source[j] ushr 24) == 255) {
+                        "Repair touches a transparent boundary"
+                    }
                     r += (source[j] ushr 16) and 255
                     g += (source[j] ushr 8) and 255
                     b += source[j] and 255
@@ -110,19 +116,30 @@ object SurfaceSpotRepair {
         val red = FloatArray(source.size) { ((rgb[it] ushr 16) and 255).toFloat() }
         val green = FloatArray(source.size) { ((rgb[it] ushr 8) and 255).toFloat() }
         val blue = FloatArray(source.size) { (rgb[it] and 255).toFloat() }
-        repeat(80) {
+        // Bounded convergence: a flat background needs almost no iteration,
+        // whereas a lighting gradient benefits from more relaxation sweeps.
+        for (iteration in 0 until 160) {
+            var maxDelta = 0f
             for (i in indices) {
                 val a = i - 1
                 val b = i + 1
                 val c = i - width
                 val d = i + width
-                red[i] = (red[a] + red[b] + red[c] + red[d]) * .25f
-                green[i] = (green[a] + green[b] + green[c] + green[d]) * .25f
-                blue[i] = (blue[a] + blue[b] + blue[c] + blue[d]) * .25f
+                val nr = (red[a] + red[b] + red[c] + red[d]) * .25f
+                val ng = (green[a] + green[b] + green[c] + green[d]) * .25f
+                val nb = (blue[a] + blue[b] + blue[c] + blue[d]) * .25f
+                maxDelta = maxOf(maxDelta, abs(nr - red[i]), abs(ng - green[i]), abs(nb - blue[i]))
+                red[i] = nr
+                green[i] = ng
+                blue[i] = nb
             }
+            if (maxDelta < .05f) break
         }
         for (i in indices) {
-            rgb[i] = -0x1000000 or (red[i].toInt() shl 16) or (green[i].toInt() shl 8) or blue[i].toInt()
+            rgb[i] = -0x1000000 or
+                (red[i].roundToInt().coerceIn(0, 255) shl 16) or
+                (green[i].roundToInt().coerceIn(0, 255) shl 8) or
+                blue[i].roundToInt().coerceIn(0, 255)
         }
         return rgb
     }

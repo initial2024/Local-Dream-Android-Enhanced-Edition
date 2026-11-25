@@ -33,4 +33,40 @@ class SurfaceSpotRepairTest {
         val output = SurfaceSpotRepair.repair(source, width, width, mask)
         for (i in source.indices) if (!mask[i]) assertEquals(source[i], output[i])
     }
+
+    @Test fun approximatesLinearLightingGradient() {
+        val w = 48
+        val reference = IntArray(w * w) { i ->
+            val gray = 30 + (i % w) * 3 + (i / w)
+            -0x1000000 or (gray shl 16) or (gray shl 8) or gray
+        }
+        val damaged = reference.copyOf()
+        val mask = BooleanArray(damaged.size)
+        for (y in 20..26) for (x in 20..26) {
+            mask[y * w + x] = true
+            damaged[y * w + x] = -0x1000000
+        }
+        val output = SurfaceSpotRepair.repair(damaged, w, w, mask)
+        for (i in mask.indices) {
+            if (!mask[i]) assertEquals(reference[i], output[i])
+            else assertTrue("gradient error at " + i,
+                kotlin.math.abs((reference[i] and 255) - (output[i] and 255)) <= 2)
+        }
+    }
+
+    @Test fun refusesTransparentBoundaryInsteadOfBleedingHiddenRgb() {
+        val w = 16
+        val source = IntArray(w * w) { -1 }
+        val mask = BooleanArray(source.size)
+        val center = 8 * w + 8
+        mask[center] = true
+        source[center - 1] = 0x00000000
+        try {
+            SurfaceSpotRepair.repair(source, w, w, mask)
+            fail("Expected transparent boundary rejection")
+        } catch (e: IllegalArgumentException) {
+            assertEquals("Repair touches a transparent boundary", e.message)
+        }
+        assertEquals(0, source[center - 1])
+    }
 }
