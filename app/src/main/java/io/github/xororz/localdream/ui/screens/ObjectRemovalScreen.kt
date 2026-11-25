@@ -81,9 +81,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-@Composable
 private enum class LocalEditMode { REMOVE, OUTFIT }
 
+@Composable
 fun ObjectRemovalScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
