@@ -96,6 +96,7 @@ fun ObjectRemovalScreen(navController: NavController) {
 
     var imported by remember { mutableStateOf<ObjectRemovalImportedImage?>(null) }
     var maskBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var detectedRegion by remember { mutableStateOf<ObjectRemovalPolicy.ApproxBodyRegion?>(null) }
     var resultBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var resultPreview by remember { mutableStateOf<Bitmap?>(null) }
     var showMaskEditor by remember { mutableStateOf(false) }
@@ -128,6 +129,27 @@ fun ObjectRemovalScreen(navController: NavController) {
             "replace the masked clothing with a realistic well-fitted outfit, preserve pose, body shape, lighting and surrounding details"
     }
 
+    fun regionLabel(region: ObjectRemovalPolicy.ApproxBodyRegion): String = when (region) {
+        ObjectRemovalPolicy.ApproxBodyRegion.HEAD_SHOULDERS -> "头肩区域"
+        ObjectRemovalPolicy.ApproxBodyRegion.UPPER_BODY -> "上身区域"
+        ObjectRemovalPolicy.ApproxBodyRegion.LOWER_BODY -> "下身区域"
+        ObjectRemovalPolicy.ApproxBodyRegion.FULL_BODY -> "全身区域"
+        ObjectRemovalPolicy.ApproxBodyRegion.OTHER -> "其他区域"
+    }
+
+    fun outfitRegionHint(region: ObjectRemovalPolicy.ApproxBodyRegion): String = when (region) {
+        ObjectRemovalPolicy.ApproxBodyRegion.HEAD_SHOULDERS ->
+            "selected head/shoulder garment or accessory area"
+        ObjectRemovalPolicy.ApproxBodyRegion.UPPER_BODY ->
+            "selected upper-body garment area"
+        ObjectRemovalPolicy.ApproxBodyRegion.LOWER_BODY ->
+            "selected lower-body garment area"
+        ObjectRemovalPolicy.ApproxBodyRegion.FULL_BODY ->
+            "selected full-outfit area"
+        ObjectRemovalPolicy.ApproxBodyRegion.OTHER ->
+            "selected garment area"
+    }
+
     var prompt by remember {
         mutableStateOf(
             prefs.getString(
@@ -158,6 +180,7 @@ fun ObjectRemovalScreen(navController: NavController) {
     fun clearSession(recycleResult: Boolean = true) {
         maskBitmap?.takeIf { !it.isRecycled }?.recycle()
         maskBitmap = null
+        detectedRegion = null
         imported?.preview?.takeIf { !it.isRecycled }?.recycle()
         imported = null
         resultPreview?.takeIf { !it.isRecycled }?.recycle()
@@ -205,6 +228,13 @@ fun ObjectRemovalScreen(navController: NavController) {
             onInpaintComplete = { _, _, mask, _ ->
                 maskBitmap?.takeIf { it !== mask && !it.isRecycled }?.recycle()
                 maskBitmap = mask
+                detectedRegion = objectRemovalMaskBounds(mask)?.let { bounds ->
+                    ObjectRemovalPolicy.classifyApproxBodyRegion(
+                        bounds,
+                        mask.width,
+                        mask.height,
+                    )
+                }
                 showMaskEditor = false
             },
             onCancel = { showMaskEditor = false },
@@ -241,6 +271,7 @@ fun ObjectRemovalScreen(navController: NavController) {
         // A mask often targets a different semantic region after changing mode.
         maskBitmap?.takeIf { !it.isRecycled }?.recycle()
         maskBitmap = null
+        detectedRegion = null
         resultPreview?.takeIf { !it.isRecycled }?.recycle()
         resultPreview = null
         resultBitmap?.takeIf { !it.isRecycled }?.recycle()
@@ -267,6 +298,12 @@ fun ObjectRemovalScreen(navController: NavController) {
                 val previewMaskBox = withContext(Dispatchers.Default) {
                     objectRemovalMaskBounds(mask)
                 } ?: throw IllegalStateException("Paint the area you want to remove first")
+                val region = ObjectRemovalPolicy.classifyApproxBodyRegion(
+                    previewMaskBox,
+                    mask.width,
+                    mask.height,
+                )
+                detectedRegion = region
                 val sourceBox = ObjectRemovalPolicy.paddedSourceBox(
                     previewMaskBox,
                     mask.width,
@@ -284,12 +321,18 @@ fun ObjectRemovalScreen(navController: NavController) {
                         workWidth, workHeight,
                     )
                 }
+                val effectivePrompt = if (editMode == LocalEditMode.OUTFIT) {
+                    prompt + ", " + outfitRegionHint(region) +
+                        ", preserve the same person, face, pose, body proportions, background and lighting"
+                } else {
+                    prompt
+                }
                 generated = ObjectRemovalEngine.run(
                     context = context,
                     model = model,
                     source = workSource!!,
                     mask = workMask!!,
-                    prompt = prompt,
+                    prompt = effectivePrompt,
                     denoiseStrength = denoise,
                     useOpenCl = useOpenCl,
                 )
@@ -474,6 +517,14 @@ fun ObjectRemovalScreen(navController: NavController) {
                         Icon(Icons.Default.AutoFixHigh, contentDescription = null)
                         Text(if (editMode == LocalEditMode.OUTFIT) " 开始换衣" else " 开始 AI 消除")
                     }
+                }
+
+                detectedRegion?.let { region ->
+                    Text(
+                        "自动识别区域：" + regionLabel(region) + "（按圈选位置粗略估计）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
 
                 Box {
