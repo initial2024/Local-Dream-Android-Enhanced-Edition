@@ -21,6 +21,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.github.xororz.localdream.data.SurfaceSpotRepair
+import io.github.xororz.localdream.data.ModelRepository
+import io.github.xororz.localdream.service.SceneBackgroundRepair
 import io.github.xororz.localdream.navigation.popBackStackIfResumed
 import io.github.xororz.localdream.utils.ImageSaveFormat
 import io.github.xororz.localdream.utils.saveImage
@@ -98,6 +100,11 @@ private fun applySpot(
 fun SurfaceSpotRepairScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val modelRepository = remember { ModelRepository.getInstance(context) }
+    LaunchedEffect(Unit) { modelRepository.ensureLoaded() }
+    val installedLocalModel = modelRepository.models.firstOrNull {
+        it.isDownloaded && it.backendType == "sd15cpu"
+    }
     var source by remember { mutableStateOf<SpotSource?>(null) }
     var selection by remember { mutableStateOf<SurfaceSpotRepair.Selection?>(null) }
     var overlay by remember { mutableStateOf<Bitmap?>(null) }
@@ -194,7 +201,7 @@ fun SurfaceSpotRepairScreen(navController: NavController) {
             Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("本地传统修补 · 适合平滑背景上的小污点 · 不需要下载 AI 模型",
+            Text("点选小污点后可选快速修补，或用已下载的本地 SD1.5 生成式补全背景；原图不覆盖。",
                 style = MaterialTheme.typography.bodySmall)
             Button(onClick = { picker.launch(arrayOf("image/*")) }, enabled = !busy,
                 modifier = Modifier.fillMaxWidth()) { Text("导入图片") }
@@ -277,6 +284,50 @@ fun SurfaceSpotRepairScreen(navController: NavController) {
                         }
                     }, enabled = !busy && selection != null && result == null,
                         modifier = Modifier.weight(1f)) { Text("修补选区") }
+                }
+                OutlinedButton(
+                    onClick = {
+                        val chosen = selection ?: return@OutlinedButton
+                        val model = installedLocalModel ?: return@OutlinedButton
+                        busy = true
+                        scope.launch {
+                            try {
+                                val repaired = SceneBackgroundRepair.run(
+                                    context = context,
+                                    sourceUri = s.uri,
+                                    preview = s.preview,
+                                    sourceWidth = s.width,
+                                    sourceHeight = s.height,
+                                    selection = chosen,
+                                    model = model,
+                                )
+                                val small = withContext(Dispatchers.Default) {
+                                    Bitmap.createScaledBitmap(
+                                        repaired, s.preview.width, s.preview.height, true,
+                                    )
+                                }
+                                result = repaired
+                                resultPreview = small
+                                message = "本地生成式修补完成；请检查边缘，再决定是否导出。"
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                message = "生成式修补失败：" + (e.message ?: "未知错误")
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    },
+                    enabled = !busy && selection != null && result == null && installedLocalModel != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("生成式背景补全（本地 SD1.5 · 实验）")
+                }
+                if (installedLocalModel == null) {
+                    Text(
+                        "生成式模式需要先在模型页面安装 SD1.5 MNN 模型；传统修补仍可使用。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 Button(onClick = {
                     val bitmap = result ?: return@Button
