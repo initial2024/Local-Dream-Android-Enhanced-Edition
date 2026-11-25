@@ -1051,7 +1051,7 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                             val showUpscaleEntry = if (remoteActive) {
                                 remoteRepository.upscalerPaths.isNotEmpty()
                             } else {
-                                Model.isQualcommDevice()
+                                BuildConfig.MNN_ONLY_NATIVE || Model.isQualcommDevice()
                             }
                             if (showUpscaleEntry) {
                                 DropdownMenuItem(
@@ -1062,6 +1062,18 @@ fun ModelListScreen(navController: NavController, modifier: Modifier = Modifier)
                                     onClick = {
                                         menuExpanded = false
                                         navController.navigate(Screen.Upscale.route)
+                                    },
+                                )
+                            }
+                            if (BuildConfig.MNN_ONLY_NATIVE) {
+                                DropdownMenuItem(
+                                    text = { Text("AI 消除 / 局部修复") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.AutoFixHigh, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        navController.navigate(Screen.ObjectRemoval.route)
                                     },
                                 )
                             }
