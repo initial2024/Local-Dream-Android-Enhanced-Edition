@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -82,6 +83,8 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
+private enum class LocalEditMode { REMOVE, OUTFIT }
+
 fun ObjectRemovalScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -101,16 +104,37 @@ fun ObjectRemovalScreen(navController: NavController) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var selectedModelId by remember { mutableStateOf(prefs.getString("removal_model", null)) }
-    var denoise by remember { mutableFloatStateOf(prefs.getFloat("removal_denoise", 0.82f)) }
+    var editMode by remember {
+        mutableStateOf(
+            runCatching {
+                LocalEditMode.valueOf(prefs.getString("local_edit_mode", LocalEditMode.REMOVE.name)!!)
+            }.getOrDefault(LocalEditMode.REMOVE),
+        )
+    }
+    var denoise by remember {
+        mutableFloatStateOf(
+            prefs.getFloat(
+                if (editMode == LocalEditMode.OUTFIT) "outfit_denoise" else "removal_denoise",
+                if (editMode == LocalEditMode.OUTFIT) 0.72f else 0.82f,
+            ),
+        )
+    }
     var useOpenCl by remember { mutableStateOf(prefs.getBoolean("removal_opencl", true)) }
     var enhancePatch by remember { mutableStateOf(prefs.getBoolean("removal_sr_refine", false)) }
     var replaceByDefault by remember { mutableStateOf(prefs.getBoolean("replace_source_default", false)) }
+    fun defaultPrompt(mode: LocalEditMode): String = when (mode) {
+        LocalEditMode.REMOVE ->
+            "seamless natural background, continue the surrounding texture and lighting"
+        LocalEditMode.OUTFIT ->
+            "replace the masked clothing with a realistic well-fitted outfit, preserve pose, body shape, lighting and surrounding details"
+    }
+
     var prompt by remember {
         mutableStateOf(
             prefs.getString(
-                "removal_prompt",
-                "seamless natural background, continue the surrounding texture and lighting",
-            ) ?: "",
+                if (editMode == LocalEditMode.OUTFIT) "outfit_prompt" else "removal_prompt",
+                defaultPrompt(editMode),
+            ) ?: defaultPrompt(editMode),
         )
     }
 
@@ -201,6 +225,27 @@ fun ObjectRemovalScreen(navController: NavController) {
             (bitmap.height * scale).roundToInt(),
             true,
         )
+    }
+
+    fun selectMode(mode: LocalEditMode) {
+        if (editMode == mode) return
+        editMode = mode
+        prefs.edit { putString("local_edit_mode", mode.name) }
+        denoise = prefs.getFloat(
+            if (mode == LocalEditMode.OUTFIT) "outfit_denoise" else "removal_denoise",
+            if (mode == LocalEditMode.OUTFIT) 0.72f else 0.82f,
+        )
+        prompt = prefs.getString(
+            if (mode == LocalEditMode.OUTFIT) "outfit_prompt" else "removal_prompt",
+            defaultPrompt(mode),
+        ) ?: defaultPrompt(mode)
+        // A mask often targets a different semantic region after changing mode.
+        maskBitmap?.takeIf { !it.isRecycled }?.recycle()
+        maskBitmap = null
+        resultPreview?.takeIf { !it.isRecycled }?.recycle()
+        resultPreview = null
+        resultBitmap?.takeIf { !it.isRecycled }?.recycle()
+        resultBitmap = null
     }
 
     fun runRemoval() {
@@ -329,7 +374,11 @@ fun ObjectRemovalScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "本地离线处理 · 只重绘圈选区域 · 图片不会上传到云端",
+                if (editMode == LocalEditMode.OUTFIT) {
+                    "本地换衣 · 只重绘圈选衣物区域 · 不上传云端"
+                } else {
+                    "本地离线处理 · 只重绘圈选区域 · 图片不会上传到云端"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -340,6 +389,35 @@ fun ObjectRemovalScreen(navController: NavController) {
             ) {
                 Icon(Icons.Default.FileOpen, contentDescription = null)
                 Text(if (imported == null) " 导入手机图片" else " 更换图片")
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (editMode == LocalEditMode.REMOVE) {
+                    Button(
+                        onClick = { selectMode(LocalEditMode.REMOVE) },
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("AI 消除") }
+                } else {
+                    FilledTonalButton(
+                        onClick = { selectMode(LocalEditMode.REMOVE) },
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("AI 消除") }
+                }
+                if (editMode == LocalEditMode.OUTFIT) {
+                    Button(
+                        onClick = { selectMode(LocalEditMode.OUTFIT) },
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("换衣服") }
+                } else {
+                    FilledTonalButton(
+                        onClick = { selectMode(LocalEditMode.OUTFIT) },
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("换衣服") }
+                }
             }
 
             val shown = resultPreview ?: imported?.preview
@@ -377,7 +455,13 @@ fun ObjectRemovalScreen(navController: NavController) {
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.Brush, contentDescription = null)
-                        Text(if (maskBitmap == null) " 圈出要消除的部分" else " 修改圈选")
+                        Text(
+                            if (maskBitmap == null) {
+                                if (editMode == LocalEditMode.OUTFIT) " 圈出要替换的衣物" else " 圈出要消除的部分"
+                            } else {
+                                " 修改圈选"
+                            },
+                        )
                     }
                     Button(
                         onClick = { runRemoval() },
@@ -385,7 +469,7 @@ fun ObjectRemovalScreen(navController: NavController) {
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.AutoFixHigh, contentDescription = null)
-                        Text(" 开始 AI 消除")
+                        Text(if (editMode == LocalEditMode.OUTFIT) " 开始换衣" else " 开始 AI 消除")
                     }
                 }
 
@@ -418,19 +502,40 @@ fun ObjectRemovalScreen(navController: NavController) {
                     value = prompt,
                     onValueChange = {
                         prompt = it
-                        prefs.edit { putString("removal_prompt", it) }
+                        prefs.edit {
+                            putString(
+                                if (editMode == LocalEditMode.OUTFIT) "outfit_prompt" else "removal_prompt",
+                                it,
+                            )
+                        }
                     },
-                    label = { Text("修复提示（可留默认）") },
+                    label = {
+                        Text(
+                            if (editMode == LocalEditMode.OUTFIT) {
+                                "新衣服描述，例如：黑色西装、白衬衫"
+                            } else {
+                                "修复提示（可留默认）"
+                            },
+                        )
+                    },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 2,
                 )
-                Text("修复强度 " + (denoise * 100).roundToInt() + "%")
+                Text(
+                    (if (editMode == LocalEditMode.OUTFIT) "衣物重绘强度 " else "修复强度 ") +
+                        (denoise * 100).roundToInt() + "%",
+                )
                 Slider(
                     value = denoise,
                     onValueChange = {
                         denoise = it
-                        prefs.edit { putFloat("removal_denoise", it) }
+                        prefs.edit {
+                            putFloat(
+                                if (editMode == LocalEditMode.OUTFIT) "outfit_denoise" else "removal_denoise",
+                                it,
+                            )
+                        }
                     },
                     valueRange = 0.5f..1f,
                     enabled = !busy,
