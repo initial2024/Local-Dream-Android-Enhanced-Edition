@@ -81,7 +81,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-private enum class LocalEditMode { REMOVE, OUTFIT }
+private enum class LocalEditMode { REMOVE, OUTFIT, NUDE }
 
 @Composable
 fun ObjectRemovalScreen(navController: NavController) {
@@ -111,12 +111,27 @@ fun ObjectRemovalScreen(navController: NavController) {
             }.getOrDefault(LocalEditMode.REMOVE),
         )
     }
+    fun denoiseKey(mode: LocalEditMode): String = when (mode) {
+        LocalEditMode.OUTFIT -> "outfit_denoise"
+        LocalEditMode.NUDE -> "nude_denoise"
+        LocalEditMode.REMOVE -> "removal_denoise"
+    }
+
+    fun defaultDenoise(mode: LocalEditMode): Float = when (mode) {
+        LocalEditMode.OUTFIT -> 0.72f
+        LocalEditMode.NUDE -> 0.78f
+        LocalEditMode.REMOVE -> 0.82f
+    }
+
+    fun promptKey(mode: LocalEditMode): String = when (mode) {
+        LocalEditMode.OUTFIT -> "outfit_prompt"
+        LocalEditMode.NUDE -> "nude_prompt"
+        LocalEditMode.REMOVE -> "removal_prompt"
+    }
+
     var denoise by remember {
         mutableFloatStateOf(
-            prefs.getFloat(
-                if (editMode == LocalEditMode.OUTFIT) "outfit_denoise" else "removal_denoise",
-                if (editMode == LocalEditMode.OUTFIT) 0.72f else 0.82f,
-            ),
+            prefs.getFloat(denoiseKey(editMode), defaultDenoise(editMode)),
         )
     }
     var useOpenCl by remember { mutableStateOf(prefs.getBoolean("removal_opencl", true)) }
@@ -127,11 +142,13 @@ fun ObjectRemovalScreen(navController: NavController) {
             "seamless natural background, continue the surrounding texture and lighting"
         LocalEditMode.OUTFIT ->
             "replace the masked clothing with a realistic well-fitted outfit, preserve pose, body shape, lighting and surrounding details"
+        LocalEditMode.NUDE ->
+            "completely nude, bare skin, natural skin texture, detailed body, soft lighting, seamless anatomy, no clothing, no fabric, nipples, realistic skin"
     }
 
     fun regionLabel(region: ObjectRemovalPolicy.ApproxBodyRegion): String = when (region) {
         ObjectRemovalPolicy.ApproxBodyRegion.HEAD_SHOULDERS -> "头肩区域"
-        ObjectRemovalPolicy.ApproxBodyRegion.UPPER_BODY -> "上身区域"
+        ObjectRemovalPolicy.ApproxBodyRegion.UPPER_BODY -> "上身区��"
         ObjectRemovalPolicy.ApproxBodyRegion.LOWER_BODY -> "下身区域"
         ObjectRemovalPolicy.ApproxBodyRegion.FULL_BODY -> "全身区域"
         ObjectRemovalPolicy.ApproxBodyRegion.OTHER -> "其他区域"
@@ -150,12 +167,22 @@ fun ObjectRemovalScreen(navController: NavController) {
             "selected garment area"
     }
 
+    fun nudeRegionHint(region: ObjectRemovalPolicy.ApproxBodyRegion): String = when (region) {
+        ObjectRemovalPolicy.ApproxBodyRegion.HEAD_SHOULDERS ->
+            "bare neck and shoulders, natural skin, no clothing"
+        ObjectRemovalPolicy.ApproxBodyRegion.UPPER_BODY ->
+            "bare breasts and torso, natural skin, nipples, no clothing"
+        ObjectRemovalPolicy.ApproxBodyRegion.LOWER_BODY ->
+            "bare lower body, natural skin, detailed anatomy, no underwear"
+        ObjectRemovalPolicy.ApproxBodyRegion.FULL_BODY ->
+            "completely nude full body, natural skin texture, detailed anatomy, no clothing"
+        ObjectRemovalPolicy.ApproxBodyRegion.OTHER ->
+            "bare skin, natural texture, no clothing"
+    }
+
     var prompt by remember {
         mutableStateOf(
-            prefs.getString(
-                if (editMode == LocalEditMode.OUTFIT) "outfit_prompt" else "removal_prompt",
-                defaultPrompt(editMode),
-            ) ?: defaultPrompt(editMode),
+            prefs.getString(promptKey(editMode), defaultPrompt(editMode)) ?: defaultPrompt(editMode),
         )
     }
 
@@ -260,14 +287,8 @@ fun ObjectRemovalScreen(navController: NavController) {
         if (editMode == mode) return
         editMode = mode
         prefs.edit { putString("local_edit_mode", mode.name) }
-        denoise = prefs.getFloat(
-            if (mode == LocalEditMode.OUTFIT) "outfit_denoise" else "removal_denoise",
-            if (mode == LocalEditMode.OUTFIT) 0.72f else 0.82f,
-        )
-        prompt = prefs.getString(
-            if (mode == LocalEditMode.OUTFIT) "outfit_prompt" else "removal_prompt",
-            defaultPrompt(mode),
-        ) ?: defaultPrompt(mode)
+        denoise = prefs.getFloat(denoiseKey(mode), defaultDenoise(mode))
+        prompt = prefs.getString(promptKey(mode), defaultPrompt(mode)) ?: defaultPrompt(mode)
         // A mask often targets a different semantic region after changing mode.
         maskBitmap?.takeIf { !it.isRecycled }?.recycle()
         maskBitmap = null
@@ -284,6 +305,10 @@ fun ObjectRemovalScreen(navController: NavController) {
         val model = selectedModel ?: return
         if (editMode == LocalEditMode.OUTFIT && prompt.isBlank()) {
             errorMessage = "请先描述要替换成什么衣服"
+            return
+        }
+        if (editMode == LocalEditMode.NUDE && prompt.isBlank()) {
+            errorMessage = "请先填写去衣描述，或使用下方预设"
             return
         }
         if (busy) return
@@ -321,11 +346,14 @@ fun ObjectRemovalScreen(navController: NavController) {
                         workWidth, workHeight,
                     )
                 }
-                val effectivePrompt = if (editMode == LocalEditMode.OUTFIT) {
-                    prompt + ", " + outfitRegionHint(region) +
-                        ", preserve the same person, face, pose, body proportions, background and lighting"
-                } else {
-                    prompt
+                val effectivePrompt = when (editMode) {
+                    LocalEditMode.OUTFIT ->
+                        prompt + ", " + outfitRegionHint(region) +
+                            ", preserve the same person, face, pose, body proportions, background and lighting"
+                    LocalEditMode.NUDE ->
+                        prompt + ", " + nudeRegionHint(region) +
+                            ", preserve the same person, face, pose, body proportions, background and lighting, no clothing"
+                    LocalEditMode.REMOVE -> prompt
                 }
                 generated = ObjectRemovalEngine.run(
                     context = context,
@@ -406,7 +434,7 @@ fun ObjectRemovalScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AI 消除 / 换衣") },
+                title = { Text("AI 消除 / 换衣 / 去衣") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStackIfResumed() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -420,10 +448,10 @@ fun ObjectRemovalScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                if (editMode == LocalEditMode.OUTFIT) {
-                    "本地换衣 · 只重绘圈选衣物区域 · 不上传云端"
-                } else {
-                    "本地离线处理 · 只重绘圈选区域 · 图片不会上传到云端"
+                when (editMode) {
+                    LocalEditMode.OUTFIT -> "本地换衣 · 只重绘圈选衣物区域 · 不上传云端"
+                    LocalEditMode.NUDE -> "本地去衣 · 圈选衣物后重绘为自然皮肤 · 不上传云端"
+                    LocalEditMode.REMOVE -> "本地离线处理 · 只重绘圈选区域 · 图片不会上传到云端"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -437,32 +465,25 @@ fun ObjectRemovalScreen(navController: NavController) {
                 Text(if (imported == null) " 导入手机图片" else " 更换图片")
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (editMode == LocalEditMode.REMOVE) {
-                    Button(
-                        onClick = { selectMode(LocalEditMode.REMOVE) },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("AI 消除") }
-                } else {
-                    FilledTonalButton(
-                        onClick = { selectMode(LocalEditMode.REMOVE) },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("AI 消除") }
-                }
-                if (editMode == LocalEditMode.OUTFIT) {
-                    Button(
-                        onClick = { selectMode(LocalEditMode.OUTFIT) },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("换衣服") }
-                } else {
-                    FilledTonalButton(
-                        onClick = { selectMode(LocalEditMode.OUTFIT) },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("换衣服") }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    LocalEditMode.REMOVE to "AI 消除",
+                    LocalEditMode.OUTFIT to "换衣服",
+                    LocalEditMode.NUDE to "去衣",
+                ).forEach { (mode, label) ->
+                    if (editMode == mode) {
+                        Button(
+                            onClick = { selectMode(mode) },
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f),
+                        ) { Text(label) }
+                    } else {
+                        FilledTonalButton(
+                            onClick = { selectMode(mode) },
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f),
+                        ) { Text(label) }
+                    }
                 }
             }
 
@@ -503,7 +524,11 @@ fun ObjectRemovalScreen(navController: NavController) {
                         Icon(Icons.Default.Brush, contentDescription = null)
                         Text(
                             if (maskBitmap == null) {
-                                if (editMode == LocalEditMode.OUTFIT) " 圈出要替换的衣物" else " 圈出要消除的部分"
+                                when (editMode) {
+                                    LocalEditMode.OUTFIT -> " 圈出要替换的衣物"
+                                    LocalEditMode.NUDE -> " 圈出要去掉的衣物"
+                                    LocalEditMode.REMOVE -> " 圈出要消除的部分"
+                                }
                             } else {
                                 " 修改圈选"
                             },
@@ -515,7 +540,13 @@ fun ObjectRemovalScreen(navController: NavController) {
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.AutoFixHigh, contentDescription = null)
-                        Text(if (editMode == LocalEditMode.OUTFIT) " 开始换衣" else " 开始 AI 消除")
+                        Text(
+                            when (editMode) {
+                                LocalEditMode.OUTFIT -> " 开始换衣"
+                                LocalEditMode.NUDE -> " 开始去衣"
+                                LocalEditMode.REMOVE -> " 开始 AI 消除"
+                            },
+                        )
                     }
                 }
 
@@ -556,66 +587,105 @@ fun ObjectRemovalScreen(navController: NavController) {
                     value = prompt,
                     onValueChange = {
                         prompt = it
-                        prefs.edit {
-                            putString(
-                                if (editMode == LocalEditMode.OUTFIT) "outfit_prompt" else "removal_prompt",
-                                it,
-                            )
-                        }
+                        prefs.edit { putString(promptKey(editMode), it) }
                     },
                     label = {
                         Text(
-                            if (editMode == LocalEditMode.OUTFIT) {
-                                "新衣服描述，例如：黑色西装、白衬衫"
-                            } else {
-                                "修复提示（可留默认）"
+                            when (editMode) {
+                                LocalEditMode.OUTFIT -> "新衣服描述，例如：黑色西装、白衬衫"
+                                LocalEditMode.NUDE -> "去衣描述（默认即可，也可改细节）"
+                                LocalEditMode.REMOVE -> "修复提示（可留默认）"
                             },
                         )
                     },
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
-                    maxLines = 2,
+                    maxLines = 3,
                 )
                 if (editMode == LocalEditMode.OUTFIT) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(
-                            "black tailored suit",
-                            "white casual shirt",
-                            "denim jacket",
-                        ).forEach { preset ->
-                            OutlinedButton(
-                                onClick = {
-                                    prompt = preset
-                                    prefs.edit { putString("outfit_prompt", preset) }
-                                },
-                                enabled = !busy,
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(
-                                    when (preset) {
-                                        "black tailored suit" -> "黑色西装"
-                                        "white casual shirt" -> "白衬衫"
-                                        else -> "牛仔外套"
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                "black tailored suit" to "黑色西装",
+                                "white casual shirt" to "白衬衫",
+                                "denim jacket" to "牛仔外套",
+                            ).forEach { (preset, label) ->
+                                OutlinedButton(
+                                    onClick = {
+                                        prompt = preset
+                                        prefs.edit { putString("outfit_prompt", preset) }
                                     },
-                                )
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(label) }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                "sheer black lingerie, lace details" to "黑色内衣",
+                                "micro bikini, high cut" to "比基尼",
+                                "wet white shirt, see-through" to "湿白衬衫",
+                            ).forEach { (preset, label) ->
+                                OutlinedButton(
+                                    onClick = {
+                                        prompt = preset
+                                        prefs.edit { putString("outfit_prompt", preset) }
+                                    },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(label) }
+                            }
+                        }
+                    }
+                }
+                if (editMode == LocalEditMode.NUDE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                "completely nude, bare skin, natural skin texture, soft lighting, nipples" to "全裸",
+                                "bare breasts and torso, natural skin, nipples, no clothing" to "上身",
+                                "bare lower body, natural skin, detailed anatomy, no underwear" to "下身",
+                            ).forEach { (preset, label) ->
+                                OutlinedButton(
+                                    onClick = {
+                                        prompt = preset
+                                        prefs.edit { putString("nude_prompt", preset) }
+                                    },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(label) }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                "completely nude, wet skin, water droplets, soft light" to "湿身",
+                                "completely nude, from behind, bare back and hips" to "背面",
+                                "completely nude, lying down, soft bed lighting" to "躺姿",
+                            ).forEach { (preset, label) ->
+                                OutlinedButton(
+                                    onClick = {
+                                        prompt = preset
+                                        prefs.edit { putString("nude_prompt", preset) }
+                                    },
+                                    enabled = !busy,
+                                    modifier = Modifier.weight(1f),
+                                ) { Text(label) }
                             }
                         }
                     }
                 }
                 Text(
-                    (if (editMode == LocalEditMode.OUTFIT) "衣物重绘强度 " else "修复强度 ") +
-                        (denoise * 100).roundToInt() + "%",
+                    when (editMode) {
+                        LocalEditMode.OUTFIT -> "衣物重绘强度 "
+                        LocalEditMode.NUDE -> "去衣重绘强度 "
+                        LocalEditMode.REMOVE -> "修复强度 "
+                    } + (denoise * 100).roundToInt() + "%",
                 )
                 Slider(
                     value = denoise,
                     onValueChange = {
                         denoise = it
-                        prefs.edit {
-                            putFloat(
-                                if (editMode == LocalEditMode.OUTFIT) "outfit_denoise" else "removal_denoise",
-                                it,
-                            )
-                        }
+                        prefs.edit { putFloat(denoiseKey(editMode), it) }
                     },
                     valueRange = 0.5f..1f,
                     enabled = !busy,
