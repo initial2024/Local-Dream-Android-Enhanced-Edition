@@ -19,6 +19,39 @@ object ObjectRemovalPolicy {
         val isValid: Boolean get() = width > 0 && height > 0
     }
 
+    enum class ApproxBodyRegion {
+        HEAD_SHOULDERS,
+        UPPER_BODY,
+        LOWER_BODY,
+        FULL_BODY,
+        OTHER,
+    }
+
+    /**
+     * Coarse, local-only region estimate derived from the user's painted mask.
+     * This intentionally does not try to infer anatomy or identity. It exists
+     * only to improve clothing/object-edit prompts and UI hints.
+     */
+    fun classifyApproxBodyRegion(
+        maskBoxPreview: Box,
+        previewWidth: Int,
+        previewHeight: Int,
+    ): ApproxBodyRegion {
+        require(maskBoxPreview.isValid)
+        require(previewWidth > 0 && previewHeight > 0)
+        val centerY = (maskBoxPreview.top + maskBoxPreview.bottom) / 2.0 / previewHeight
+        val heightRatio = maskBoxPreview.height.toDouble() / previewHeight
+        val widthRatio = maskBoxPreview.width.toDouble() / previewWidth
+
+        if (heightRatio >= 0.55 || (heightRatio >= 0.45 && widthRatio >= 0.55)) {
+            return ApproxBodyRegion.FULL_BODY
+        }
+        if (centerY < 0.24) return ApproxBodyRegion.HEAD_SHOULDERS
+        if (centerY < 0.60) return ApproxBodyRegion.UPPER_BODY
+        if (centerY <= 0.98) return ApproxBodyRegion.LOWER_BODY
+        return ApproxBodyRegion.OTHER
+    }
+
     fun paddedSourceBox(
         maskBoxPreview: Box,
         previewWidth: Int,
