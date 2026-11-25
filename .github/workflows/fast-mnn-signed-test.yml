@@ -4,12 +4,6 @@ name: Fast signed MNN device-test from pinned native artifact
 # Never silently reuse an older native binary after native source changes.
 on:
   workflow_dispatch:
-  # One-shot self-trigger for this re-pin commit. Reverted to manual-only
-  # immediately after GitHub schedules the run.
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/fast-mnn-signed-test.yml'
 
 permissions:
   contents: read
