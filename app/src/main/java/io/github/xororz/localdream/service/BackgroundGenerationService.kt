@@ -53,6 +53,8 @@ class BackgroundGenerationService : Service() {
         private const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "stop_generation"
         const val LOCAL_BACKEND_HOST = "localhost:8081"
+        const val EXTRA_IMAGE_FILE = "image_payload_file"
+        const val EXTRA_MASK_FILE = "mask_payload_file"
 
         // Shared across generations; the long timeouts cover a single SDXL
         // request that can stream for many minutes.
@@ -164,6 +166,12 @@ class BackgroundGenerationService : Service() {
         // Backend to talk to: the local backend by default, or a remote host's
         // generation port when running in connected-device mode.
         val backendHost = intent.getStringExtra("backend_host") ?: LOCAL_BACKEND_HOST
+        fun payloadName(extra: String, fallback: String): String {
+            val candidate = intent.getStringExtra(extra) ?: return fallback
+            return if (candidate.matches(Regex("[A-Za-z0-9_.-]{1,64}"))) candidate else fallback
+        }
+        val imagePayloadName = payloadName(EXTRA_IMAGE_FILE, "tmp.txt")
+        val maskPayloadName = payloadName(EXTRA_MASK_FILE, "mask.txt")
 
         val image = if (ultrafix) {
             try {
@@ -179,7 +187,7 @@ class BackgroundGenerationService : Service() {
             }
         } else if (intent.getBooleanExtra("has_image", false)) {
             try {
-                val tmpFile = File(applicationContext.filesDir, "tmp.txt")
+                val tmpFile = File(applicationContext.filesDir, imagePayloadName)
                 if (tmpFile.exists()) {
                     tmpFile.readText()
                 } else {
@@ -194,7 +202,7 @@ class BackgroundGenerationService : Service() {
         }
         val mask = if (intent.getBooleanExtra("has_mask", false)) {
             try {
-                val maskFile = File(applicationContext.filesDir, "mask.txt")
+                val maskFile = File(applicationContext.filesDir, maskPayloadName)
                 if (maskFile.exists()) {
                     maskFile.readText()
                 } else {
