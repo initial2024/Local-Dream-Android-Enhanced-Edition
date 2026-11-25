@@ -43,6 +43,20 @@ This is primarily a **code/resource/model-distribution slimming strategy**, not 
 >
 > You can join our [telegram group](https://t.me/local_dream) for discussion or help with testing.
 
+## Enhanced Android package size strategy
+
+The enhanced Android build keeps the installer small **without removing runtime features**:
+
+- **R8 code shrinking / optimization** is enabled for release builds (`isMinifyEnabled = true`).
+- **Android resource shrinking** is enabled (`isShrinkResources = true`).
+- The public enhanced APK is **arm64-v8a only**, so unused CPU ABIs are not bundled.
+- The native `libstable_diffusion_core.so` is safely processed with
+  `llvm-strip --strip-unneeded` before packaging; the unstripped CI artifact is kept separately for diagnostics.
+- Large AI weights (SD / MNN upscalers and related models) are **downloaded on demand** instead of being embedded in the base APK.
+- Public release bundles use **ZIP level 9** for the companion archive; this does not change model precision or image quality.
+
+This means the smaller APK is primarily the result of code/resource/ABI/native-symbol packaging choices. It is **not** achieved by lowering generated-image quality or quantizing a user's downloaded model behind the scenes.
+
 ## User Guide
 
 For certain reasons, all guides and documentation have been moved to [Guide Site](https://ld-guide.chino.icu).
