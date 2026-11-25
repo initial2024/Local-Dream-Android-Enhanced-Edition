@@ -81,6 +81,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+private enum class LocalEditMode {
+    REMOVE_OBJECT,
+    CHANGE_OUTFIT,
+}
+
 @Composable
 fun ObjectRemovalScreen(navController: NavController) {
     val context = LocalContext.current
@@ -105,11 +110,29 @@ fun ObjectRemovalScreen(navController: NavController) {
     var useOpenCl by remember { mutableStateOf(prefs.getBoolean("removal_opencl", true)) }
     var enhancePatch by remember { mutableStateOf(prefs.getBoolean("removal_sr_refine", false)) }
     var replaceByDefault by remember { mutableStateOf(prefs.getBoolean("replace_source_default", false)) }
+    var editMode by remember {
+        mutableStateOf(
+            runCatching {
+                LocalEditMode.valueOf(
+                    prefs.getString("local_edit_mode", LocalEditMode.REMOVE_OBJECT.name)
+                        ?: LocalEditMode.REMOVE_OBJECT.name,
+                )
+            }.getOrDefault(LocalEditMode.REMOVE_OBJECT),
+        )
+    }
     var prompt by remember {
         mutableStateOf(
             prefs.getString(
                 "removal_prompt",
                 "seamless natural background, continue the surrounding texture and lighting",
+            ) ?: "",
+        )
+    }
+    var outfitPrompt by remember {
+        mutableStateOf(
+            prefs.getString(
+                "outfit_prompt",
+                "a well-fitted casual jacket, realistic fabric, natural folds, matching lighting",
             ) ?: "",
         )
     }
@@ -236,12 +259,19 @@ fun ObjectRemovalScreen(navController: NavController) {
                         workWidth, workHeight,
                     )
                 }
+                val operationPrompt = when (editMode) {
+                    LocalEditMode.REMOVE_OBJECT -> prompt
+                    LocalEditMode.CHANGE_OUTFIT ->
+                        "replace only the selected clothing with " + outfitPrompt +
+                            ", preserve the same person, face, body proportions, pose, background, " +
+                            "camera angle and lighting; realistic garment boundaries"
+                }
                 generated = ObjectRemovalEngine.run(
                     context = context,
                     model = model,
                     source = workSource!!,
                     mask = workMask!!,
-                    prompt = prompt,
+                    prompt = operationPrompt,
                     denoiseStrength = denoise,
                     useOpenCl = useOpenCl,
                 )
@@ -333,6 +363,28 @@ fun ObjectRemovalScreen(navController: NavController) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        editMode = LocalEditMode.REMOVE_OBJECT
+                        prefs.edit { putString("local_edit_mode", editMode.name) }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (editMode == LocalEditMode.REMOVE_OBJECT) "✓ AI 消除" else "AI 消除")
+                }
+                OutlinedButton(
+                    onClick = {
+                        editMode = LocalEditMode.CHANGE_OUTFIT
+                        prefs.edit { putString("local_edit_mode", editMode.name) }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (editMode == LocalEditMode.CHANGE_OUTFIT) "✓ 换衣服" else "换衣服")
+                }
+            }
             Button(
                 onClick = { picker.launch(arrayOf("image/*")) },
                 enabled = !busy,
@@ -377,7 +429,13 @@ fun ObjectRemovalScreen(navController: NavController) {
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.Brush, contentDescription = null)
-                        Text(if (maskBitmap == null) " 圈出要消除的部分" else " 修改圈选")
+                        Text(
+                            if (maskBitmap == null) {
+                                if (editMode == LocalEditMode.CHANGE_OUTFIT) " 圈出要替换的衣物" else " 圈出要消除的部分"
+                            } else {
+                                " 修改圈选"
+                            },
+                        )
                     }
                     Button(
                         onClick = { runRemoval() },
@@ -385,7 +443,9 @@ fun ObjectRemovalScreen(navController: NavController) {
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Default.AutoFixHigh, contentDescription = null)
-                        Text(" 开始 AI 消除")
+                        Text(
+                            if (editMode == LocalEditMode.CHANGE_OUTFIT) " 开始换衣" else " 开始 AI 消除",
+                        )
                     }
                 }
 
@@ -414,17 +474,61 @@ fun ObjectRemovalScreen(navController: NavController) {
                     }
                 }
 
-                OutlinedTextField(
-                    value = prompt,
-                    onValueChange = {
-                        prompt = it
-                        prefs.edit { putString("removal_prompt", it) }
-                    },
-                    label = { Text("修复提示（可留默认）") },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 2,
-                )
+                if (editMode == LocalEditMode.REMOVE_OBJECT) {
+                    OutlinedTextField(
+                        value = prompt,
+                        onValueChange = {
+                            prompt = it
+                            prefs.edit { putString("removal_prompt", it) }
+                        },
+                        label = { Text("背景修复提示（可留默认）") },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 2,
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = outfitPrompt,
+                        onValueChange = {
+                            outfitPrompt = it
+                            prefs.edit { putString("outfit_prompt", it) }
+                        },
+                        label = { Text("想换成什么衣服") },
+                        placeholder = { Text("例如：黑色西装、白色连衣裙、运动夹克") },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 2,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            "black tailored suit",
+                            "white summer dress",
+                            "casual denim jacket",
+                        ).forEach { preset ->
+                            OutlinedButton(
+                                onClick = {
+                                    outfitPrompt = preset
+                                    prefs.edit { putString("outfit_prompt", preset) }
+                                },
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    when (preset) {
+                                        "black tailored suit" -> "西装"
+                                        "white summer dress" -> "连衣裙"
+                                        else -> "牛仔外套"
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "换衣只修改你圈选的衣物区域；脸、姿势、身体比例和背景尽量保持不变。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Text("修复强度 " + (denoise * 100).roundToInt() + "%")
                 Slider(
                     value = denoise,
