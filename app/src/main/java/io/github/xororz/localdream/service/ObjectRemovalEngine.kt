@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import io.github.xororz.localdream.data.Model
+import io.github.xororz.localdream.data.ObjectRemovalPolicy
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Base64
@@ -37,6 +38,10 @@ object ObjectRemovalEngine {
             "A downloaded local SD1.5 MNN model is required"
         }
         require(source.width == mask.width && source.height == mask.height)
+        require(ObjectRemovalPolicy.isValidNativeCanvas(source.width, source.height)) {
+            "Local SD1.5 MNN image and mask must be 128..1024 px, " +
+                "multiples of 64 on both axes (got ${source.width}x${source.height})"
+        }
         val imageFile = File(context.filesDir, IMAGE_FILE)
         val maskFile = File(context.filesDir, MASK_FILE)
         return try {

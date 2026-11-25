@@ -425,11 +425,23 @@ class BackgroundGenerationService : Service() {
             activeCall = call
             call.execute().use { response ->
                 if (!response.isSuccessful) {
+                    val statusText = this@BackgroundGenerationService.getString(
+                        R.string.error_request_failed, response.code.toString(),
+                    )
+                    // Read at most 4 KiB of the native service's error JSON.
+                    // It contains a specific validation reason (e.g. canvas
+                    // must be multiple of 64); never copy the request, encoded
+                    // source image, mask or private prompt into a diagnostic.
+                    val nativeReason = if (isLocalMnn) runCatching {
+                        val errorBody = response.peekBody(4096L).string()
+                        JSONObject(errorBody).optJSONObject("error")
+                            ?.optString("message")
+                            ?.trim()
+                            ?.take(240)
+                            ?.takeIf { it.isNotEmpty() }
+                    }.getOrNull() else null
                     throw IOException(
-                        this@BackgroundGenerationService.getString(
-                            R.string.error_request_failed,
-                            response.code.toString(),
-                        ),
+                        if (nativeReason == null) statusText else "$statusText: $nativeReason",
                     )
                 }
 
