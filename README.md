@@ -15,6 +15,21 @@ This project is **now open sourced and completely free**. Hope you enjoy it!
 
 If you like it, please consider [sponsor](#-support-this-project) this project.
 
+### Enhanced Edition packaging / compression strategy
+
+The Enhanced Edition keeps the installer small **without reducing generated-image quality**:
+
+- **R8 code shrinking + optimization** is enabled for release builds.
+- **Android resource shrinking** removes resources that are not reachable from the final app.
+- The device-test APK is **arm64-v8a only**, so unused x86 / x86_64 / armeabi-v7a native libraries are not packaged.
+- Large Stable Diffusion and AI super-resolution weights are **downloaded on demand and kept outside the base APK** instead of being bundled into every install.
+- The release uses the normal optimized APK packaging pipeline and excludes unnecessary META-INF license duplicates; it does **not** recompress exported PNG/JPEG images to achieve a smaller APK.
+- AI super-resolution, object removal and local outfit editing reuse the existing local MNN runtime rather than shipping another full inference framework.
+- Runtime memory is reduced separately from APK size: SD generation and neural super-resolution use **mutually exclusive native backends**, ROI-only object removal edits only the masked region, and intermediate image buffers are minimized / released after use.
+
+This is primarily a **code/resource/model-distribution slimming strategy**, not lossy image compression. Upstream Zstandard support is used where model/package formats require it, but Zstd is not the main mechanism responsible for the small Android installer.
+
+
 > [!NOTE]
 > Currently focused on SD1.5 and SDXL models. SD2.1 is no longer maintained due to poor quality and limited popularity.
 >
